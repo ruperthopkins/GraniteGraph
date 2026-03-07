@@ -19,12 +19,37 @@ export default function Home({ session }) {
     }
     reader.readAsDataURL(file)
   }
-
+const resizeImage = (base64) => {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      const maxSize = 1024
+      let width = img.width
+      let height = img.height
+      if (width > height && width > maxSize) {
+        height = (height * maxSize) / width
+        width = maxSize
+      } else if (height > maxSize) {
+        width = (width * maxSize) / height
+        height = maxSize
+      }
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, width, height)
+      const resized = canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
+      resolve(resized)
+    }
+    img.src = 'data:image/jpeg;base64,' + base64
+  })
+}
   const analyzePhoto = async () => {
     if (!imageBase64) return
     setLoading(true)
     setResults(null)
     try {
+      const resizedBase64 = await resizeImage(imageBase64)
       const geminiResponse = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=AIzaSyCW2wVHpFjJvp4b_JDmIx0OoHpLMacwDmE`,
         {
@@ -39,7 +64,7 @@ export default function Home({ session }) {
                 {
                   inline_data: {
                     mime_type: 'image/jpeg',
-                    data: imageBase64
+                    data: resizedBase64
                   }
                 }
               ]
@@ -51,10 +76,15 @@ export default function Home({ session }) {
           })
         }
       )
+const geminiData = await geminiResponse.json()
+console.log('Gemini raw response:', JSON.stringify(geminiData))
 
-      const geminiData = await geminiResponse.json()
-      console.log('Gemini raw response:', JSON.stringify(geminiData))
-      const rawText = geminiData.candidates[0].content.parts[0].text
+if (!geminiData.candidates || geminiData.candidates.length === 0) {
+  const errorMsg = geminiData.error?.message || JSON.stringify(geminiData)
+  throw new Error('Gemini error: ' + errorMsg)
+}
+
+const rawText = geminiData.candidates[0].content.parts[0].text
       const cleaned = rawText.replace(/```json|```/g, '').trim()
       const extracted = JSON.parse(cleaned)
 
