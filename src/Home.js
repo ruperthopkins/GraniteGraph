@@ -51,7 +51,7 @@ const resizeImage = (base64) => {
     try {
       const resizedBase64 = await resizeImage(imageBase64)
       const geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=AIzaSyCW2wVHpFjJvp4b_JDmIx0OoHpLMacwDmE`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.REACT_APP_GEMINI_KEY}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
