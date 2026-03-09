@@ -69,9 +69,10 @@ const resizeImage = (base64) => {
                 }
               ]
             }],
-            generationConfig: {
-              temperature: 0.1,
-              maxOutputTokens: 1024
+            ggenerationConfig: {
+  temperature: 0.1,
+  maxOutputTokens: 2048
+}
             }
           })
         }
