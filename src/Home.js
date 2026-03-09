@@ -7,7 +7,7 @@ export default function Home({ session }) {
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState(null)
   const fileInput = useRef(null)
-
+const fileInputGallery = useRef(null)
   const handlePhoto = (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -205,29 +205,36 @@ export default function Home({ session }) {
       </div>
 
       <div className="p-4 max-w-lg mx-auto">
-        {/* Hidden file input */}
-        <<input
+        {/* Hidden file inputs */}
+<input
   type="file"
   accept="image/*"
+  capture="environment"
   ref={fileInput}
   onChange={handlePhoto}
   className="hidden"
 />
-```
+<input
+  type="file"
+  accept="image/*"
+  ref={fileInputGallery}
+  onChange={handlePhoto}
+  className="hidden"
+/>
 
-Save, then push:
-```
-git add .
-git commit -m "Allow photo library selection on mobile"
-git push
-
-        {/* Camera Button */}
-        <button
-          onClick={() => fileInput.current.click()}
-          className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-6 rounded-lg text-lg mb-4 flex items-center justify-center gap-3"
-        >
-          📷 Photograph Stone
-        </button>
+{/* Buttons */}
+<button
+  onClick={() => fileInput.current.click()}
+  className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-6 rounded-lg text-lg mb-3 flex items-center justify-center gap-3"
+>
+  📷 Photograph Stone
+</button>
+<button
+  onClick={() => fileInputGallery.current.click()}
+  className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg text-base mb-4 flex items-center justify-center gap-3"
+>
+  🖼️ Choose from Library
+</button>
 
         {/* Image Preview */}
         {image && (
