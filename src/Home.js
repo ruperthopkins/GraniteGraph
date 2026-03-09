@@ -7,7 +7,7 @@ export default function Home({ session }) {
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState(null)
   const fileInput = useRef(null)
-const fileInputGallery = useRef(null)
+
   const handlePhoto = (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -71,33 +71,38 @@ const fileInputGallery = useRef(null)
               ]
             }],
             generationConfig: {
-  temperature: 0.1,
-  maxOutputTokens: 4096,
-  thinkingConfig: {
-    thinkingBudget: 0
-  }
-}
+              temperature: 0.1,
+              maxOutputTokens: 4096,
+              thinkingConfig: {
+                thinkingBudget: 0
+              }
+            }
           })
         }
       )
 
       const geminiData = await geminiResponse.json()
       console.log('Gemini raw response:', JSON.stringify(geminiData))
+
+      if (!geminiData.candidates || geminiData.candidates.length === 0) {
+        throw new Error('Gemini error: ' + (geminiData.error?.message || JSON.stringify(geminiData)))
+      }
+
       const rawText = geminiData.candidates[0].content.parts[0].text
       const cleaned = rawText.replace(/```json|```/g, '').trim()
       const extracted = JSON.parse(cleaned)
 
       console.log('Gemini extracted:', extracted)
 
-      const searchTerm = extracted.last_name || extracted.first_name || ''
+      const searchTerm = extracted.last_name || ''
       const firstName = extracted.first_name || ''
 
       const { data: matches, error: searchError } = await supabase
-  .from('v_deceased_search')
-  .select('*')
-  .ilike('last_name', `%${searchTerm}%`)
-  .ilike('first_name', `%${firstName}%`)
-  .limit(10)
+        .from('v_deceased_search')
+        .select('*')
+        .ilike('last_name', `%${searchTerm}%`)
+        .ilike('first_name', `%${firstName}%`)
+        .limit(10)
 
       if (searchError) {
         console.error('Supabase search error:', searchError)
@@ -115,10 +120,22 @@ const fileInputGallery = useRef(null)
 
   const confirmMatch = async (person) => {
     try {
+      // Capture GPS coordinates
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        })
+      })
+      const lat = position.coords.latitude
+      const lng = position.coords.longitude
+      const accuracy = position.coords.accuracy
+
       // Save photo to Supabase storage
       const fileName = `${Date.now()}_${session.user.id}.jpg`
       const blob = await fetch(image).then(r => r.blob())
-      
+
       const { error: photoError } = await supabase.storage
         .from('Stone_Images')
         .upload(fileName, blob, { contentType: 'image/jpeg' })
@@ -129,13 +146,15 @@ const fileInputGallery = useRef(null)
         .from('Stone_Images')
         .getPublicUrl(fileName)
 
-      // Create stone record
+      // Create stone record with GPS
       const { data: stoneData, error: stoneError } = await supabase
         .from('stones')
         .insert({
           cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
           volunteer_notes: results.extracted.notes || '',
-          field_status: 'complete'
+          field_status: 'complete',
+          location: `SRID=4326;POINT(${lng} ${lat})`,
+          gps_accuracy_m: accuracy
         })
         .select()
         .single()
@@ -176,18 +195,19 @@ const fileInputGallery = useRef(null)
           metadata: {
             deceased_name: person.full_name,
             gemini_confidence: results.extracted.confidence,
-            kinship_hints: results.extracted.kinship_hints
+            kinship_hints: results.extracted.kinship_hints,
+            gps: { lat, lng, accuracy }
           }
         })
 
-      alert(`Match confirmed! ${person.full_name} linked to new stone.`)
+      alert(`Match confirmed! ${person.full_name} linked to new stone.\nGPS: ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
       setResults(null)
       setImage(null)
       setImageBase64(null)
 
     } catch (err) {
       console.error(err)
-      alert('Error saving match. Please try again.')
+      alert('Error saving match: ' + err.message)
     }
   }
 
@@ -205,36 +225,23 @@ const fileInputGallery = useRef(null)
       </div>
 
       <div className="p-4 max-w-lg mx-auto">
-        {/* Hidden file inputs */}
-<input
-  type="file"
-  accept="image/*"
-  capture="environment"
-  ref={fileInput}
-  onChange={handlePhoto}
-  className="hidden"
-/>
-<input
-  type="file"
-  accept="image/*"
-  ref={fileInputGallery}
-  onChange={handlePhoto}
-  className="hidden"
-/>
+        {/* Hidden file input */}
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          ref={fileInput}
+          onChange={handlePhoto}
+          className="hidden"
+        />
 
-{/* Buttons */}
-<button
-  onClick={() => fileInput.current.click()}
-  className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-6 rounded-lg text-lg mb-3 flex items-center justify-center gap-3"
->
-  📷 Photograph Stone
-</button>
-<button
-  onClick={() => fileInputGallery.current.click()}
-  className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg text-base mb-4 flex items-center justify-center gap-3"
->
-  🖼️ Choose from Library
-</button>
+        {/* Camera Button */}
+        <button
+          onClick={() => fileInput.current.click()}
+          className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-6 rounded-lg text-lg mb-4 flex items-center justify-center gap-3"
+        >
+          📷 Photograph Stone
+        </button>
 
         {/* Image Preview */}
         {image && (
