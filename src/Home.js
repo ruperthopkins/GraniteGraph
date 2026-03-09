@@ -19,31 +19,32 @@ export default function Home({ session }) {
     }
     reader.readAsDataURL(file)
   }
-const resizeImage = (base64) => {
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      const maxSize = 1024
-      let width = img.width
-      let height = img.height
-      if (width > height && width > maxSize) {
-        height = (height * maxSize) / width
-        width = maxSize
-      } else if (height > maxSize) {
-        width = (width * maxSize) / height
-        height = maxSize
+
+  const resizeImage = (base64) => {
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const maxSize = 1024
+        let width = img.width
+        let height = img.height
+        if (width > height && width > maxSize) {
+          height = (height * maxSize) / width
+          width = maxSize
+        } else if (height > maxSize) {
+          width = (width * maxSize) / height
+          height = maxSize
+        }
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, width, height)
+        resolve(canvas.toDataURL('image/jpeg', 0.8).split(',')[1])
       }
-      canvas.width = width
-      canvas.height = height
-      const ctx = canvas.getContext('2d')
-      ctx.drawImage(img, 0, 0, width, height)
-      const resized = canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
-      resolve(resized)
-    }
-    img.src = 'data:image/jpeg;base64,' + base64
-  })
-}
+      img.src = 'data:image/jpeg;base64,' + base64
+    })
+  }
+
   const analyzePhoto = async () => {
     if (!imageBase64) return
     setLoading(true)
@@ -69,23 +70,20 @@ const resizeImage = (base64) => {
                 }
               ]
             }],
-            ggenerationConfig: {
+            generationConfig: {
   temperature: 0.1,
-  maxOutputTokens: 2048
+  maxOutputTokens: 4096,
+  thinkingConfig: {
+    thinkingBudget: 0
+  }
 }
-            }
           })
         }
       )
-const geminiData = await geminiResponse.json()
-console.log('Gemini raw response:', JSON.stringify(geminiData))
 
-if (!geminiData.candidates || geminiData.candidates.length === 0) {
-  const errorMsg = geminiData.error?.message || JSON.stringify(geminiData)
-  throw new Error('Gemini error: ' + errorMsg)
-}
-
-const rawText = geminiData.candidates[0].content.parts[0].text
+      const geminiData = await geminiResponse.json()
+      console.log('Gemini raw response:', JSON.stringify(geminiData))
+      const rawText = geminiData.candidates[0].content.parts[0].text
       const cleaned = rawText.replace(/```json|```/g, '').trim()
       const extracted = JSON.parse(cleaned)
 
@@ -95,10 +93,11 @@ const rawText = geminiData.candidates[0].content.parts[0].text
       const firstName = extracted.first_name || ''
 
       const { data: matches, error: searchError } = await supabase
-        .from('v_deceased_search')
-        .select('*')
-        .or(`last_name.ilike.%${searchTerm}%,maiden_name.ilike.%${searchTerm}%,first_name.ilike.%${firstName}%`)
-        .limit(10)
+  .from('v_deceased_search')
+  .select('*')
+  .ilike('last_name', `%${searchTerm}%`)
+  .ilike('first_name', `%${firstName}%`)
+  .limit(10)
 
       if (searchError) {
         console.error('Supabase search error:', searchError)
