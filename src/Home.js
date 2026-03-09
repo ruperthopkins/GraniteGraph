@@ -206,14 +206,20 @@ export default function Home({ session }) {
 
       <div className="p-4 max-w-lg mx-auto">
         {/* Hidden file input */}
-        <input
-          type="file"
-          accept="image/*"
-          capture="environment"
-          ref={fileInput}
-          onChange={handlePhoto}
-          className="hidden"
-        />
+        <<input
+  type="file"
+  accept="image/*"
+  ref={fileInput}
+  onChange={handlePhoto}
+  className="hidden"
+/>
+```
+
+Save, then push:
+```
+git add .
+git commit -m "Allow photo library selection on mobile"
+git push
 
         {/* Camera Button */}
         <button
