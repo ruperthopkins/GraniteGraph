@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { supabase } from './supabaseClient'
 
-export default function Home({ session }) {
+export default function Home({ session, onMap }) {
   const [image, setImage] = useState(null)
   const [imageBase64, setImageBase64] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -216,12 +216,20 @@ export default function Home({ session }) {
       {/* Header */}
       <div className="bg-gray-800 p-4 flex items-center justify-between">
         <h1 className="text-xl font-bold text-green-400">Granite Graph</h1>
-        <button
-          onClick={() => supabase.auth.signOut()}
-          className="text-gray-400 text-sm hover:text-white"
-        >
-          Sign Out
-        </button>
+        <div className="flex gap-3">
+  <button
+    onClick={onMap}
+    className="text-gray-400 text-sm hover:text-white"
+  >
+    🗺️ Map
+  </button>
+  <button
+    onClick={() => supabase.auth.signOut()}
+    className="text-gray-400 text-sm hover:text-white"
+  >
+    Sign Out
+  </button>
+</div>
       </div>
 
       <div className="p-4 max-w-lg mx-auto">

@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 import Login from './Login'
 import Home from './Home'
+import Map from './Map'
 
 function App() {
   const [session, setSession] = useState(null)
+  const [page, setPage] = useState('home')
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -15,13 +17,18 @@ function App() {
     })
   }, [])
 
+  if (!session) {
+    return <Login onLogin={() => supabase.auth.getSession()
+      .then(({ data: { session } }) => setSession(session))} />
+  }
+
   return (
     <div>
-      {!session ? (
-        <Login onLogin={() => supabase.auth.getSession()
-          .then(({ data: { session } }) => setSession(session))} />
-      ) : (
-        <Home session={session} />
+      {page === 'home' && (
+        <Home session={session} onMap={() => setPage('map')} />
+      )}
+      {page === 'map' && (
+        <Map onBack={() => setPage('home')} />
       )}
     </div>
   )
