@@ -36,20 +36,19 @@ export default function Map({ onBack }) {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
       <div className="bg-gray-800 p-4 flex items-center justify-between">
         <h1 className="text-xl font-bold text-green-400">Granite Graph</h1>
         <button
           onClick={onBack}
           className="text-gray-400 text-sm hover:text-white"
         >
-          ← Back
+          Back
         </button>
       </div>
 
       <div className="p-4 max-w-lg mx-auto">
         <h2 className="text-green-400 font-bold text-lg mb-4">
-          📍 Cataloged Stones ({stones.length})
+          Cataloged Stones ({stones.length})
         </h2>
 
         {loading && (
@@ -74,15 +73,30 @@ export default function Map({ onBack }) {
             >
               <p className="font-bold text-white">
                 {deceased
-                  ? `${deceased.first_name} ${deceased.last_name}`
+                  ? deceased.first_name + ' ' + deceased.last_name
                   : 'Unknown'}
               </p>
-              {deceased?.date_of_death_verbatim && (
+              {deceased && deceased.date_of_death_verbatim && (
                 <p className="text-gray-400 text-sm">
                   d. {deceased.date_of_death_verbatim}
                 </p>
               )}
-              <p className="text-green-400 text-xs mt-1">
-                GPS accuracy: ±{stone.gps_accuracy_m?.toFixed(1)}m
+              {stone.gps_accuracy_m && (
+                <p className="text-green-400 text-xs mt-1">
+                  GPS accuracy: {stone.gps_accuracy_m.toFixed(1)}m
+                </p>
+              )}
+              <p className={
+                stone.field_status === 'complete'
+                  ? 'text-green-500 text-xs mt-1'
+                  : 'text-yellow-500 text-xs mt-1'
+              }>
+                {stone.field_status}
               </p>
-              <p classNam
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
