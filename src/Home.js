@@ -45,6 +45,51 @@ export default function Home({ session, onMap }) {
     })
   }
 
+  const searchForPerson = async (person) => {
+    let searchTerm = person.last_name || ''
+    const firstName = person.first_name || ''
+
+    if (!searchTerm && person.kinship_hints && person.kinship_hints.length > 0) {
+      const kinshipText = person.kinship_hints.join(' ')
+      const words = kinshipText.split(' ')
+      searchTerm = words[words.length - 1]
+    }
+
+    const deathYearMatch = (person.date_of_death_verbatim || '').match(/\d{4}/)
+    const extractedYear = deathYearMatch ? parseInt(deathYearMatch[0]) : null
+
+    let query = supabase
+      .from('v_deceased_search')
+      .select('*')
+      .ilike('last_name', `%${searchTerm}%`)
+
+    if (firstName) {
+      query = query.ilike('first_name', `%${firstName}%`)
+    }
+
+    const { data: rawMatches, error: searchError } = await query.limit(20)
+
+    if (searchError) {
+      console.error('Supabase search error:', searchError)
+      return []
+    }
+
+    let matches = rawMatches || []
+    if (extractedYear && matches.length > 0) {
+      matches = matches
+        .map(m => ({
+          ...m,
+          yearDiff: m.date_of_death
+            ? Math.abs(new Date(m.date_of_death).getFullYear() - extractedYear)
+            : 999
+        }))
+        .sort((a, b) => a.yearDiff - b.yearDiff)
+        .slice(0, 10)
+    }
+
+    return matches
+  }
+
   const analyzePhoto = async () => {
     if (!imageBase64) return
     setLoading(true)
@@ -60,7 +105,7 @@ export default function Home({ session, onMap }) {
             contents: [{
               parts: [
                 {
-                  text: `You are transcribing text from a historic cemetery gravestone photograph. The stone may be weathered, poorly lit, or use 18th/19th century typography.\n\nExtract the following if visible:\n- First name, middle name, last name\n- Maiden name (often shown as née or born)\n- Birth date exactly as inscribed\n- Death date exactly as inscribed\n- Any kinship text (e.g. wife of, son of, daughter of)\n- Any titles (Rev, Dr, Pvt, Capt etc.)\n\nRules:\n- Transcribe exactly what you see, do not guess or infer\n- For uncertain characters use ? (e.g. 18?4)\n- For unreadable sections use [unreadable]\n- The long S character (ſ) should be transcribed as regular s\n- Return ONLY a JSON object, no other text\n\nReturn this exact JSON structure:\n{\n  "first_name": "",\n  "middle_name": "",\n  "last_name": "",\n  "maiden_name": "",\n  "date_of_birth_verbatim": "",\n  "date_of_death_verbatim": "",\n  "kinship_hints": [],\n  "titles": "",\n  "confidence": "high|medium|low",\n  "notes": ""\n}`
+                  text: `You are transcribing text from a historic cemetery gravestone photograph. The stone may be weathered, poorly lit, or use 18th/19th century typography. There may be ONE or MULTIPLE people on the same stone.\n\nExtract ALL people mentioned on the stone. For each person extract:\n- First name, middle name, last name\n- Maiden name (often shown as nee or born)\n- Birth date exactly as inscribed\n- Death date exactly as inscribed\n- Any kinship text (e.g. wife of, son of, daughter of)\n- Any titles (Rev, Dr, Pvt, Capt etc.)\n\nRules:\n- Transcribe exactly what you see, do not guess or infer\n- For uncertain characters use ? (e.g. 18?4)\n- For unreadable sections use [unreadable]\n- The long S character should be transcribed as regular s\n- If a last name is not shown, infer it from context (e.g. family stone header)\n- Return ONLY a JSON object, no other text\n\nReturn this exact JSON structure:\n{\n  "people": [\n    {\n      "first_name": "",\n      "middle_name": "",\n      "last_name": "",\n      "maiden_name": "",\n      "date_of_birth_verbatim": "",\n      "date_of_death_verbatim": "",\n      "kinship_hints": [],\n      "titles": "",\n      "confidence": "high|medium|low",\n      "notes": ""\n    }\n  ],\n  "stone_notes": ""\n}`
                 },
                 {
                   inline_data: {
@@ -94,52 +139,16 @@ export default function Home({ session, onMap }) {
 
       console.log('Gemini extracted:', extracted)
 
-      // Extract last name from kinship if missing
-let searchTerm = extracted.last_name || ''
-const firstName = extracted.first_name || ''
+      // Search for each person on the stone
+      const people = extracted.people || []
+      const peopleWithMatches = await Promise.all(
+        people.map(async (person) => {
+          const matches = await searchForPerson(person)
+          return { person, matches }
+        })
+      )
 
-if (!searchTerm && extracted.kinship_hints?.length > 0) {
-  const kinshipText = extracted.kinship_hints.join(' ')
-  const words = kinshipText.split(' ')
-  searchTerm = words[words.length - 1] // Last word is usually the surname
-}
-
-// Extract death year for proximity scoring
-const deathYearMatch = (extracted.date_of_death_verbatim || '').match(/\d{4}/)
-const extractedYear = deathYearMatch ? parseInt(deathYearMatch[0]) : null
-
-let query = supabase
-  .from('v_deceased_search')
-  .select('*')
-  .ilike('last_name', `%${searchTerm}%`)
-
-if (firstName) {
-  query = query.ilike('first_name', `%${firstName}%`)
-}
-
-const { data: rawMatches, error: searchError } = await query.limit(20)
-
-// Sort by death year proximity if we have a year
-let matches = rawMatches || []
-if (extractedYear && matches.length > 0) {
-  matches = matches
-    .map(m => ({
-      ...m,
-      yearDiff: m.date_of_death
-        ? Math.abs(new Date(m.date_of_death).getFullYear() - extractedYear)
-        : 999
-    }))
-    .sort((a, b) => a.yearDiff - b.yearDiff)
-    .slice(0, 10)
-}
-
-      if (searchError) {
-        console.error('Supabase search error:', searchError)
-        throw searchError
-      }
-
-      console.log('Supabase matches:', matches)
-      setResults({ extracted, matches })
+      setResults({ peopleWithMatches, stone_notes: extracted.stone_notes })
     } catch (err) {
       console.error('Full error:', err)
       alert('Error: ' + err.message)
@@ -147,9 +156,9 @@ if (extractedYear && matches.length > 0) {
     setLoading(false)
   }
 
-  const confirmMatch = async (person) => {
+  const confirmMatch = async (person, matchedRecord, stoneIdRef) => {
     try {
-      // Capture GPS coordinates
+      // Capture GPS
       const position = await new Promise((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
@@ -161,7 +170,7 @@ if (extractedYear && matches.length > 0) {
       const lng = position.coords.longitude
       const accuracy = position.coords.accuracy
 
-      // Save photo to Supabase storage
+      // Save photo to storage (only on first confirm for this stone)
       const fileName = `${Date.now()}_${session.user.id}.jpg`
       const blob = await fetch(image).then(r => r.blob())
 
@@ -180,7 +189,7 @@ if (extractedYear && matches.length > 0) {
         .from('stones')
         .insert({
           cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
-          volunteer_notes: results.extracted.notes || '',
+          volunteer_notes: person.notes || '',
           field_status: 'complete',
           location: `SRID=4326;POINT(${lng} ${lat})`,
           gps_accuracy_m: accuracy
@@ -206,7 +215,7 @@ if (extractedYear && matches.length > 0) {
         .from('stone_deceased')
         .insert({
           stone_id: stoneData.stone_id,
-          deceased_id: person.deceased_id,
+          deceased_id: matchedRecord.deceased_id,
           confirmed_by: session.user.id,
           confirmed_at: new Date().toISOString(),
           match_method: 'volunteer_confirmed'
@@ -222,17 +231,14 @@ if (extractedYear && matches.length > 0) {
           entity_id: stoneData.stone_id,
           cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
           metadata: {
-            deceased_name: person.full_name,
-            gemini_confidence: results.extracted.confidence,
-            kinship_hints: results.extracted.kinship_hints,
+            deceased_name: matchedRecord.full_name,
+            gemini_confidence: person.confidence,
+            kinship_hints: person.kinship_hints,
             gps: { lat, lng, accuracy }
           }
         })
 
-      alert(`Match confirmed! ${person.full_name} linked to new stone.\nGPS: ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
-      setResults(null)
-      setImage(null)
-      setImageBase64(null)
+      alert('Match confirmed! ' + matchedRecord.full_name + ' linked to new stone.\nGPS: ' + lat.toFixed(6) + ', ' + lng.toFixed(6))
 
     } catch (err) {
       console.error(err)
@@ -240,29 +246,33 @@ if (extractedYear && matches.length > 0) {
     }
   }
 
+  const clearResults = () => {
+    setResults(null)
+    setImage(null)
+    setImageBase64(null)
+  }
+
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
       <div className="bg-gray-800 p-4 flex items-center justify-between">
         <h1 className="text-xl font-bold text-green-400">Granite Graph</h1>
         <div className="flex gap-3">
-  <button
-    onClick={onMap}
-    className="text-gray-400 text-sm hover:text-white"
-  >
-    🗺️ Map
-  </button>
-  <button
-    onClick={() => supabase.auth.signOut()}
-    className="text-gray-400 text-sm hover:text-white"
-  >
-    Sign Out
-  </button>
-</div>
+          <button
+            onClick={onMap}
+            className="text-gray-400 text-sm hover:text-white"
+          >
+            Map
+          </button>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="text-gray-400 text-sm hover:text-white"
+          >
+            Sign Out
+          </button>
+        </div>
       </div>
 
       <div className="p-4 max-w-lg mx-auto">
-        {/* Hidden file input */}
         <input
           type="file"
           accept="image/*"
@@ -272,15 +282,13 @@ if (extractedYear && matches.length > 0) {
           className="hidden"
         />
 
-        {/* Camera Button */}
         <button
           onClick={() => fileInput.current.click()}
           className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-6 rounded-lg text-lg mb-4 flex items-center justify-center gap-3"
         >
-          📷 Photograph Stone
+          Photograph Stone
         </button>
 
-        {/* Image Preview */}
         {image && (
           <div className="mb-4">
             <img
@@ -293,105 +301,102 @@ if (extractedYear && matches.length > 0) {
               disabled={loading}
               className="w-full bg-blue-700 hover:bg-blue-600 disabled:bg-blue-900 text-white font-bold py-3 rounded-lg"
             >
-              {loading ? '🔍 Analyzing...' : '🔍 Analyze with Gemini'}
+              {loading ? 'Analyzing...' : 'Analyze with Gemini'}
             </button>
           </div>
         )}
 
-        {/* Results */}
         {results && (
           <div className="mt-4">
-            {/* Gemini Extraction */}
-            <div className="bg-gray-800 rounded-lg p-4 mb-4">
-              <h2 className="text-green-400 font-bold mb-2">Gemini Extracted:</h2>
-              <p>
-                <span className="text-gray-400">Name: </span>
-                {results.extracted.first_name} {results.extracted.middle_name} {results.extracted.last_name}
-              </p>
-              {results.extracted.maiden_name && (
-                <p>
-                  <span className="text-gray-400">Maiden: </span>
-                  {results.extracted.maiden_name}
-                </p>
-              )}
-              {results.extracted.date_of_birth_verbatim && (
-                <p>
-                  <span className="text-gray-400">Born: </span>
-                  {results.extracted.date_of_birth_verbatim}
-                </p>
-              )}
-              {results.extracted.date_of_death_verbatim && (
-                <p>
-                  <span className="text-gray-400">Died: </span>
-                  {results.extracted.date_of_death_verbatim}
-                </p>
-              )}
-              {results.extracted.kinship_hints?.length > 0 && (
-                <p>
-                  <span className="text-gray-400">Kinship: </span>
-                  {results.extracted.kinship_hints.join(', ')}
-                </p>
-              )}
-              <p>
-                <span className="text-gray-400">Confidence: </span>
-                <span className={
-                  results.extracted.confidence === 'high' ? 'text-green-400' :
-                  results.extracted.confidence === 'medium' ? 'text-yellow-400' :
-                  'text-red-400'
-                }>
-                  {results.extracted.confidence}
-                </span>
-              </p>
-            </div>
-
-            {/* Database Matches */}
-            <h2 className="text-green-400 font-bold mb-2">
-              Database Matches ({results.matches?.length || 0}):
-            </h2>
-            {results.matches?.length === 0 && (
-              <div className="bg-gray-800 rounded-lg p-4">
-                <p className="text-gray-400">No matches found.</p>
-                <p className="text-gray-500 text-sm mt-1">
-                  Add a note and move to the next stone.
-                </p>
+            {results.stone_notes && (
+              <div className="bg-gray-700 rounded-lg p-3 mb-4">
+                <p className="text-gray-300 text-sm">{results.stone_notes}</p>
               </div>
             )}
-            {results.matches?.map(person => (
-              <div
-                key={person.deceased_id}
-                className={`p-4 rounded-lg mb-2 ${
-                  person.is_photographed
-                    ? 'bg-gray-700 border border-yellow-600'
-                    : 'bg-gray-800'
-                }`}
-              >
-                <p className={`font-bold text-lg ${
-                  person.is_photographed ? 'text-yellow-400' : 'text-white'
-                }`}>
-                  {person.full_name}
-                  {person.is_photographed && ' ✓'}
-                </p>
-                <p className="text-gray-400 text-sm">
-                  {person.date_of_death_verbatim && `d. ${person.date_of_death_verbatim}`}
-                  {person.maiden_name && ` • née ${person.maiden_name}`}
-                </p>
-                {person.is_photographed && (
-                  <p className="text-yellow-600 text-xs mt-1">
-                    Already cataloged ({person.stone_count} stone{person.stone_count > 1 ? 's' : ''})
+
+            <p className="text-green-400 font-bold mb-3">
+              {results.peopleWithMatches.length} person{results.peopleWithMatches.length !== 1 ? 's' : ''} found on stone:
+            </p>
+
+            {results.peopleWithMatches.map((item, index) => (
+              <div key={index} className="mb-6 border border-gray-700 rounded-lg p-4">
+                <div className="bg-gray-800 rounded-lg p-3 mb-3">
+                  <p className="text-green-400 font-bold text-sm mb-1">Person {index + 1}</p>
+                  <p className="font-bold">
+                    {item.person.first_name} {item.person.middle_name} {item.person.last_name}
+                    {item.person.maiden_name ? ' (nee ' + item.person.maiden_name + ')' : ''}
                   </p>
+                  {item.person.date_of_birth_verbatim && (
+                    <p className="text-gray-400 text-sm">b. {item.person.date_of_birth_verbatim}</p>
+                  )}
+                  {item.person.date_of_death_verbatim && (
+                    <p className="text-gray-400 text-sm">d. {item.person.date_of_death_verbatim}</p>
+                  )}
+                  {item.person.kinship_hints && item.person.kinship_hints.length > 0 && (
+                    <p className="text-gray-400 text-sm">{item.person.kinship_hints.join(', ')}</p>
+                  )}
+                  <p className={
+                    item.person.confidence === 'high' ? 'text-green-400 text-xs mt-1' :
+                    item.person.confidence === 'medium' ? 'text-yellow-400 text-xs mt-1' :
+                    'text-red-400 text-xs mt-1'
+                  }>
+                    Confidence: {item.person.confidence}
+                  </p>
+                </div>
+
+                <p className="text-gray-400 text-sm mb-2">
+                  Database matches ({item.matches.length}):
+                </p>
+
+                {item.matches.length === 0 && (
+                  <div className="bg-gray-800 rounded p-3">
+                    <p className="text-gray-500 text-sm">No matches found.</p>
+                  </div>
                 )}
-                <button
-                  onClick={() => confirmMatch(person)}
-                  className={`mt-3 w-full py-2 rounded text-sm font-bold transition-colors ${
-                    person.is_photographed
-                      ? 'bg-yellow-700 hover:bg-yellow-600 text-white'
-                      : 'bg-green-700 hover:bg-green-600 text-white'
-                  }`}
-                >
-                  {person.is_photographed ? '✓ Confirm Again' : '✓ Confirm Match'}
-                </button>
+
+                {item.matches.map(match => (
+                  <div
+                    key={match.deceased_id}
+                    className={`p-3 rounded-lg mb-2 ${
+                      match.is_photographed
+                        ? 'bg-gray-700 border border-yellow-600'
+                        : 'bg-gray-800'
+                    }`}
+                  >
+                    <p className={`font-bold ${
+                      match.is_photographed ? 'text-yellow-400' : 'text-white'
+                    }`}>
+                      {match.full_name}
+                      {match.is_photographed ? ' (already cataloged)' : ''}
+                    </p>
+                    <p className="text-gray-400 text-sm">
+                      {match.date_of_death_verbatim && 'd. ' + match.date_of_death_verbatim}
+                      {match.maiden_name && ' | nee ' + match.maiden_name}
+                      {match.yearDiff !== undefined && match.yearDiff < 999 && (
+                        ' | ' + match.yearDiff + ' yr' + (match.yearDiff !== 1 ? 's' : '') + ' off'
+                      )}
+                    </p>
+                    <button
+                      onClick={() => confirmMatch(item.person, match)}
+                      className={`mt-2 w-full py-2 rounded text-sm font-bold ${
+                        match.is_photographed
+                          ? 'bg-yellow-700 hover:bg-yellow-600 text-white'
+                          : 'bg-green-700 hover:bg-green-600 text-white'
+                      }`}
+                    >
+                      {match.is_photographed ? 'Confirm Again' : 'Confirm Match'}
+                    </button>
+                  </div>
+                ))}
               </div>
             ))}
+
+            <button
+              onClick={clearResults}
+              className="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg mt-2"
+            >
+              Clear and Start Over
+            </button>
           </div>
         )}
       </div>
