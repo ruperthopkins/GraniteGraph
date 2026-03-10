@@ -94,15 +94,44 @@ export default function Home({ session, onMap }) {
 
       console.log('Gemini extracted:', extracted)
 
-      const searchTerm = extracted.last_name || ''
-      const firstName = extracted.first_name || ''
+      // Extract last name from kinship if missing
+let searchTerm = extracted.last_name || ''
+const firstName = extracted.first_name || ''
 
-      const { data: matches, error: searchError } = await supabase
-        .from('v_deceased_search')
-        .select('*')
-        .ilike('last_name', `%${searchTerm}%`)
-        .ilike('first_name', `%${firstName}%`)
-        .limit(10)
+if (!searchTerm && extracted.kinship_hints?.length > 0) {
+  const kinshipText = extracted.kinship_hints.join(' ')
+  const words = kinshipText.split(' ')
+  searchTerm = words[words.length - 1] // Last word is usually the surname
+}
+
+// Extract death year for proximity scoring
+const deathYearMatch = (extracted.date_of_death_verbatim || '').match(/\d{4}/)
+const extractedYear = deathYearMatch ? parseInt(deathYearMatch[0]) : null
+
+let query = supabase
+  .from('v_deceased_search')
+  .select('*')
+  .ilike('last_name', `%${searchTerm}%`)
+
+if (firstName) {
+  query = query.ilike('first_name', `%${firstName}%`)
+}
+
+const { data: rawMatches, error: searchError } = await query.limit(20)
+
+// Sort by death year proximity if we have a year
+let matches = rawMatches || []
+if (extractedYear && matches.length > 0) {
+  matches = matches
+    .map(m => ({
+      ...m,
+      yearDiff: m.date_of_death
+        ? Math.abs(new Date(m.date_of_death).getFullYear() - extractedYear)
+        : 999
+    }))
+    .sort((a, b) => a.yearDiff - b.yearDiff)
+    .slice(0, 10)
+}
 
       if (searchError) {
         console.error('Supabase search error:', searchError)
