@@ -1,12 +1,4 @@
-// v5 - multi person support
 import { useState, useEffect } from 'react'
-```
-
-Save then push:
-```
-git add .
-git commit -m "Bust Vercel cache v5"
-git pushimport { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 import Login from './Login'
 import Home from './Home'
