@@ -172,7 +172,13 @@ export default function Home({ session, onMap }) {
 
       // Save photo to storage (only on first confirm for this stone)
       const fileName = `${Date.now()}_${session.user.id}.jpg`
-      const blob = await fetch(image).then(r => r.blob())
+      // Convert base64 to blob directly (more reliable than fetch in field)
+const byteString = atob(imageBase64)
+const byteArray = new Uint8Array(byteString.length)
+for (let i = 0; i < byteString.length; i++) {
+  byteArray[i] = byteString.charCodeAt(i)
+}
+const blob = new Blob([byteArray], { type: 'image/jpeg' })
 
       const { error: photoError } = await supabase.storage
         .from('Stone_Images')
