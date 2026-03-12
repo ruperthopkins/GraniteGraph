@@ -77,16 +77,17 @@ export default function Search({ onLogin }) {
     } else {
       // Score results by how many terms match
       const scored = (data || []).map(record => {
-        const fullText = [
-          record.first_name, record.middle_name,
-          record.last_name, record.maiden_name
-        ].filter(Boolean).join(' ').toLowerCase()
+  const fullText = [
+    record.first_name, record.middle_name,
+    record.last_name, record.maiden_name
+  ].filter(Boolean).join(' ').toLowerCase()
 
-        const score = terms.filter(t => fullText.includes(t.toLowerCase())).length
-        return { ...record, score }
-      })
-      scored.sort((a, b) => b.score - a.score)
-      setResults(scored)
+  const score = terms.filter(t => fullText.includes(t.toLowerCase())).length
+  return { ...record, score }
+})
+// Only show results where ALL terms match
+const filtered = scored.filter(r => r.score === terms.length)
+setResults(filtered.length > 0 ? filtered : scored)
     }
     setSearching(false)
   }
