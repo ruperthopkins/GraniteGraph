@@ -95,8 +95,12 @@ setResults(filtered.length > 0 ? filtered : scored)
   const selectRecord = async (record) => {
     setSelected(record)
     setStoneData(null)
-
+    console.log('Selected record:', record)
+    console.log('Is photographed:', record.is_photographed)
     // Fetch stone data if photographed
+    if (!error && data?.stones) {
+    console.log('Stone data:', data)
+    console.log('Coords:', coords)
     if (record.is_photographed) {
       const { data, error } = await supabase
         .from('stone_deceased')
