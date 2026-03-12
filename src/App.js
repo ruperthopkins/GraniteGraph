@@ -3,6 +3,7 @@ import { supabase } from './supabaseClient'
 import Login from './Login'
 import Home from './Home'
 import Map from './Map'
+import Recent from './Recent'
 
 function App() {
   const [session, setSession] = useState(null)
@@ -25,10 +26,13 @@ function App() {
   return (
     <div>
       {page === 'home' && (
-        <Home session={session} onMap={() => setPage('map')} />
+        <Home session={session} onMap={() => setPage('map')} onRecent={() => setPage('recent')} />
       )}
       {page === 'map' && (
         <Map onBack={() => setPage('home')} />
+      )}
+      {page === 'recent' && (
+        <Recent onBack={() => setPage('home')} />
       )}
     </div>
   )
