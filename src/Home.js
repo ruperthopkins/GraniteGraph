@@ -191,16 +191,27 @@ export default function Home({ session, onMap, onRecent }) {
 
       // Create stone record with GPS
       const { data: stoneData, error: stoneError } = await supabase
-        .from('stones')
-        .insert({
-          cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
-          volunteer_notes: person.notes || '',
-          field_status: 'complete',
-          location: `SRID=4326;POINT(${lng} ${lat})`,
-          gps_accuracy_m: accuracy
-        })
-        .select()
-        .single()
+  .from('stones')
+  .insert({
+    cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+    volunteer_notes: person.notes || '',
+    stone_condition: results.stone_notes || '',
+    inscription_text: results.peopleWithMatches
+      .map(p => [
+        p.person.first_name,
+        p.person.middle_name,
+        p.person.last_name,
+        p.person.date_of_birth_verbatim,
+        p.person.date_of_death_verbatim,
+        ...(p.person.kinship_hints || [])
+      ].filter(Boolean).join(' '))
+      .join(' | '),
+    field_status: 'complete',
+    location: `SRID=4326;POINT(${lng} ${lat})`,
+    gps_accuracy_m: accuracy
+  })
+  .select()
+  .single()
 
       if (stoneError) throw stoneError
 
