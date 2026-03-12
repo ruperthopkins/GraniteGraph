@@ -46,7 +46,7 @@ const extractFirstName = (rawName) => {
   return words[0]
 }
 
-export default function Home({ session, onMap, onRecent }) {
+export default function Home({ session, onMap, onRecent, onSearch }) {
   const [image, setImage] = useState(null)
   const [imageBase64, setImageBase64] = useState(null)
   const [loading, setLoading] = useState(false)
