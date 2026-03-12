@@ -1,11 +1,57 @@
 import { useState, useRef } from 'react'
 import { supabase } from './supabaseClient'
 
+// Parse kinship hints from Gemini into structured relationships
+const parseKinshipHints = (hints, subjectName) => {
+  if (!hints || hints.length === 0) return []
+  const relationships = []
+
+  const patterns = [
+    { regex: /(?:wife|spouse|consort)\s+of\s+([A-Z][a-z]+(?:\s+[A-Z]\.?\s*)?(?:[A-Z][a-z]+))/i, type: 'spouse' },
+    { regex: /(?:husband)\s+of\s+([A-Z][a-z]+(?:\s+[A-Z]\.?\s*)?(?:[A-Z][a-z]+))/i, type: 'spouse' },
+    { regex: /(?:son|daughter|child)\s+of\s+(.+)/i, type: 'child' },
+    { regex: /(?:father|mother|parent)\s+of\s+(.+)/i, type: 'parent' },
+    { regex: /(?:brother|sister|sibling)\s+of\s+(.+)/i, type: 'sibling' },
+  ]
+
+  hints.forEach(hint => {
+    patterns.forEach(({ regex, type }) => {
+      const match = hint.match(regex)
+      if (match) {
+        const namesPart = match[1]
+        // Handle "RUPERT H. & CHARLOTTE B. HOPKINS" style
+        const names = namesPart.split(/\s*[&,]\s*/)
+        names.forEach(rawName => {
+          const cleaned = rawName.trim().replace(/\.$/, '')
+          if (cleaned.length > 2) {
+            relationships.push({ type, rawName: cleaned, hint })
+          }
+        })
+      }
+    })
+  })
+
+  return relationships
+}
+
+// Extract last name from a raw name string
+const extractLastName = (rawName) => {
+  const words = rawName.trim().split(/\s+/)
+  return words[words.length - 1]
+}
+
+// Extract first name from a raw name string  
+const extractFirstName = (rawName) => {
+  const words = rawName.trim().split(/\s+/)
+  return words[0]
+}
+
 export default function Home({ session, onMap, onRecent }) {
   const [image, setImage] = useState(null)
   const [imageBase64, setImageBase64] = useState(null)
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState(null)
+  const [kinshipSuggestions, setKinshipSuggestions] = useState(null)
   const fileInput = useRef(null)
 
   const handlePhoto = (e) => {
@@ -90,10 +136,26 @@ export default function Home({ session, onMap, onRecent }) {
     return matches
   }
 
+  const searchForRelative = async (rawName) => {
+    const firstName = extractFirstName(rawName)
+    const lastName = extractLastName(rawName)
+
+    const { data, error } = await supabase
+      .from('v_deceased_search')
+      .select('*')
+      .ilike('last_name', `%${lastName}%`)
+      .ilike('first_name', `%${firstName}%`)
+      .limit(5)
+
+    if (error) return []
+    return data || []
+  }
+
   const analyzePhoto = async () => {
     if (!imageBase64) return
     setLoading(true)
     setResults(null)
+    setKinshipSuggestions(null)
     try {
       const resizedBase64 = await resizeImage(imageBase64)
       const geminiResponse = await fetch(
@@ -137,9 +199,6 @@ export default function Home({ session, onMap, onRecent }) {
       const cleaned = rawText.replace(/```json|```/g, '').trim()
       const extracted = JSON.parse(cleaned)
 
-      console.log('Gemini extracted:', extracted)
-
-      // Search for each person on the stone
       const people = extracted.people || []
       const peopleWithMatches = await Promise.all(
         people.map(async (person) => {
@@ -156,7 +215,7 @@ export default function Home({ session, onMap, onRecent }) {
     setLoading(false)
   }
 
-  const confirmMatch = async (person, matchedRecord, stoneIdRef) => {
+  const confirmMatch = async (person, matchedRecord) => {
     try {
       // Capture GPS
       const position = await new Promise((resolve, reject) => {
@@ -170,7 +229,7 @@ export default function Home({ session, onMap, onRecent }) {
       const lng = position.coords.longitude
       const accuracy = position.coords.accuracy
 
-      // Convert base64 to blob directly (more reliable in field)
+      // Convert base64 to blob
       const byteString = atob(imageBase64)
       const byteArray = new Uint8Array(byteString.length)
       for (let i = 0; i < byteString.length; i++) {
@@ -189,33 +248,32 @@ export default function Home({ session, onMap, onRecent }) {
         .from('Stone_Images')
         .getPublicUrl(fileName)
 
-      // Create stone record with GPS
+      // Create stone record with GPS and Gemini notes
       const { data: stoneData, error: stoneError } = await supabase
-  .from('stones')
-  .insert({
-    cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
-    volunteer_notes: person.notes || '',
-    stone_condition: results.stone_notes || '',
-    inscription_text: results.peopleWithMatches
-      .map(p => [
-        p.person.first_name,
-        p.person.middle_name,
-        p.person.last_name,
-        p.person.date_of_birth_verbatim,
-        p.person.date_of_death_verbatim,
-        ...(p.person.kinship_hints || [])
-      ].filter(Boolean).join(' '))
-      .join(' | '),
-    field_status: 'complete',
-    location: `SRID=4326;POINT(${lng} ${lat})`,
-    gps_accuracy_m: accuracy
-  })
-  .select()
-  .single()
+        .from('stones')
+        .insert({
+          cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+          volunteer_notes: person.notes || '',
+          stone_condition: results.stone_notes || '',
+          inscription_text: results.peopleWithMatches
+            .map(p => [
+              p.person.first_name,
+              p.person.middle_name,
+              p.person.last_name,
+              p.person.date_of_birth_verbatim,
+              p.person.date_of_death_verbatim,
+              ...(p.person.kinship_hints || [])
+            ].filter(Boolean).join(' '))
+            .join(' | '),
+          field_status: 'complete',
+          location: `SRID=4326;POINT(${lng} ${lat})`,
+          gps_accuracy_m: accuracy
+        })
+        .select()
+        .single()
 
       if (stoneError) throw stoneError
 
-      // Save photo record
       await supabase
         .from('stone_photos')
         .insert({
@@ -226,7 +284,6 @@ export default function Home({ session, onMap, onRecent }) {
           is_primary: true
         })
 
-      // Link stone to deceased
       await supabase
         .from('stone_deceased')
         .insert({
@@ -237,7 +294,6 @@ export default function Home({ session, onMap, onRecent }) {
           match_method: 'volunteer_confirmed'
         })
 
-      // Log activity
       await supabase
         .from('activity_log')
         .insert({
@@ -254,7 +310,25 @@ export default function Home({ session, onMap, onRecent }) {
           }
         })
 
-      alert('Match confirmed! ' + matchedRecord.full_name + ' linked to new stone.\nGPS: ' + lat.toFixed(6) + ', ' + lng.toFixed(6))
+      // Now build kinship suggestions
+      const relationships = parseKinshipHints(person.kinship_hints, matchedRecord.full_name)
+      if (relationships.length > 0) {
+        const suggestionsWithCandidates = await Promise.all(
+          relationships.map(async (rel) => {
+            const candidates = await searchForRelative(rel.rawName)
+            return { ...rel, candidates, subjectId: matchedRecord.deceased_id, subjectName: matchedRecord.full_name }
+          })
+        )
+        setKinshipSuggestions(suggestionsWithCandidates.filter(s => s.candidates.length > 0))
+        setResults(null)
+        setImage(null)
+        setImageBase64(null)
+      } else {
+        alert('Match confirmed! ' + matchedRecord.full_name + ' linked.\nGPS: ' + lat.toFixed(6) + ', ' + lng.toFixed(6))
+        setResults(null)
+        setImage(null)
+        setImageBase64(null)
+      }
 
     } catch (err) {
       console.error(err)
@@ -262,10 +336,71 @@ export default function Home({ session, onMap, onRecent }) {
     }
   }
 
+  const confirmKinship = async (suggestion, candidate) => {
+    // Determine the inverse relationship
+    const inverseType = {
+      'spouse': 'spouse',
+      'child': 'parent',
+      'parent': 'child',
+      'sibling': 'sibling'
+    }[suggestion.type] || 'unknown'
+
+    try {
+      // Insert primary → relative
+      await supabase
+        .from('kinship')
+        .insert({
+          primary_deceased_id: suggestion.subjectId,
+          relative_deceased_id: candidate.deceased_id,
+          relationship_type: suggestion.type,
+          source: 'stone_inscription',
+          confidence: 0.9,
+          notes: suggestion.hint
+        })
+
+      // Insert inverse: relative → primary
+      await supabase
+        .from('kinship')
+        .insert({
+          primary_deceased_id: candidate.deceased_id,
+          relative_deceased_id: suggestion.subjectId,
+          relationship_type: inverseType,
+          source: 'stone_inscription',
+          confidence: 0.9,
+          notes: suggestion.hint
+        })
+
+      await supabase
+        .from('activity_log')
+        .insert({
+          user_id: session.user.id,
+          action: 'kinship_confirmed',
+          entity_type: 'kinship',
+          entity_id: suggestion.subjectId,
+          cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+          metadata: {
+            subject: suggestion.subjectName,
+            relative: candidate.full_name,
+            relationship: suggestion.type
+          }
+        })
+
+      alert('Kinship saved: ' + suggestion.subjectName + ' is ' + suggestion.type + ' of ' + candidate.full_name)
+
+      // Remove this suggestion from the list
+      setKinshipSuggestions(prev => prev.filter(s => s !== suggestion))
+
+    } catch (err) {
+      console.error(err)
+      alert('Error saving kinship: ' + err.message)
+    }
+  }
+
   const clearResults = () => {
     setResults(null)
     setImage(null)
     setImageBase64(null)
+    setKinshipSuggestions(null)
   }
 
   return (
@@ -273,24 +408,9 @@ export default function Home({ session, onMap, onRecent }) {
       <div className="bg-gray-800 p-4 flex items-center justify-between">
         <h1 className="text-xl font-bold text-green-400">Granite Graph</h1>
         <div className="flex gap-3">
-          <button
-            onClick={onMap}
-            className="text-gray-400 text-sm hover:text-white"
-          >
-            Map
-          </button>
-          <button
-            onClick={onRecent}
-            className="text-gray-400 text-sm hover:text-white"
-          >
-            Recent
-          </button>
-          <button
-            onClick={() => supabase.auth.signOut()}
-            className="text-gray-400 text-sm hover:text-white"
-          >
-            Sign Out
-          </button>
+          <button onClick={onMap} className="text-gray-400 text-sm hover:text-white">Map</button>
+          <button onClick={onRecent} className="text-gray-400 text-sm hover:text-white">Recent</button>
+          <button onClick={() => supabase.auth.signOut()} className="text-gray-400 text-sm hover:text-white">Sign Out</button>
         </div>
       </div>
 
@@ -313,11 +433,7 @@ export default function Home({ session, onMap, onRecent }) {
 
         {image && (
           <div className="mb-4">
-            <img
-              src={image}
-              alt="Gravestone"
-              className="w-full rounded-lg mb-3"
-            />
+            <img src={image} alt="Gravestone" className="w-full rounded-lg mb-3" />
             <button
               onClick={analyzePhoto}
               disabled={loading}
@@ -328,6 +444,58 @@ export default function Home({ session, onMap, onRecent }) {
           </div>
         )}
 
+        {/* Kinship Suggestions Panel */}
+        {kinshipSuggestions && kinshipSuggestions.length > 0 && (
+          <div className="mt-4">
+            <div className="bg-yellow-900 border border-yellow-600 rounded-lg p-4 mb-4">
+              <h2 className="text-yellow-400 font-bold mb-1">Suggested Kinship Links</h2>
+              <p className="text-yellow-200 text-sm">Stone inscription suggests these relationships. Confirm or skip each one.</p>
+            </div>
+
+            {kinshipSuggestions.map((suggestion, sIndex) => (
+              <div key={sIndex} className="bg-gray-800 rounded-lg p-4 mb-4 border border-gray-600">
+                <p className="text-white font-bold">{suggestion.subjectName}</p>
+                <p className="text-yellow-400 text-sm mb-1">
+                  is {suggestion.type} of "{suggestion.rawName}"
+                </p>
+                <p className="text-gray-500 text-xs mb-3">from: "{suggestion.hint}"</p>
+
+                <p className="text-gray-400 text-sm mb-2">Who is this?</p>
+                {suggestion.candidates.map(candidate => (
+                  <div key={candidate.deceased_id} className="bg-gray-700 rounded p-3 mb-2">
+                    <p className="text-white font-bold">{candidate.full_name}</p>
+                    {candidate.date_of_death_verbatim && (
+                      <p className="text-gray-400 text-sm">d. {candidate.date_of_death_verbatim}</p>
+                    )}
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        onClick={() => confirmKinship(suggestion, candidate)}
+                        className="flex-1 bg-green-700 hover:bg-green-600 text-white py-2 rounded text-sm font-bold"
+                      >
+                        Confirm
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  onClick={() => setKinshipSuggestions(prev => prev.filter((_, i) => i !== sIndex))}
+                  className="w-full bg-gray-700 hover:bg-gray-600 text-gray-400 py-2 rounded text-sm mt-1"
+                >
+                  Skip this relationship
+                </button>
+              </div>
+            ))}
+
+            <button
+              onClick={() => setKinshipSuggestions(null)}
+              className="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg mt-2"
+            >
+              Done with kinship
+            </button>
+          </div>
+        )}
+
+        {/* Results */}
         {results && (
           <div className="mt-4">
             {results.stone_notes && (
@@ -385,9 +553,7 @@ export default function Home({ session, onMap, onRecent }) {
                         : 'bg-gray-800'
                     }`}
                   >
-                    <p className={`font-bold ${
-                      match.is_photographed ? 'text-yellow-400' : 'text-white'
-                    }`}>
+                    <p className={`font-bold ${match.is_photographed ? 'text-yellow-400' : 'text-white'}`}>
                       {match.full_name}
                       {match.is_photographed ? ' (already cataloged)' : ''}
                     </p>
