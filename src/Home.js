@@ -414,6 +414,7 @@ condition_notes: results.stone_notes || '',
           <button onClick={onMap} className="text-gray-400 text-sm hover:text-white">Map</button>
           <button onClick={onRecent} className="text-gray-400 text-sm hover:text-white">Recent</button>
           <button onClick={() => supabase.auth.signOut()} className="text-gray-400 text-sm hover:text-white">Sign Out</button>
+          <button onClick={onSearch} className="text-gray-400 text-sm hover:text-white">Search</button>
         </div>
       </div>
 
