@@ -170,15 +170,14 @@ export default function Home({ session, onMap, onRecent }) {
       const lng = position.coords.longitude
       const accuracy = position.coords.accuracy
 
-      // Save photo to storage (only on first confirm for this stone)
+      // Convert base64 to blob directly (more reliable in field)
+      const byteString = atob(imageBase64)
+      const byteArray = new Uint8Array(byteString.length)
+      for (let i = 0; i < byteString.length; i++) {
+        byteArray[i] = byteString.charCodeAt(i)
+      }
+      const blob = new Blob([byteArray], { type: 'image/jpeg' })
       const fileName = `${Date.now()}_${session.user.id}.jpg`
-      // Convert base64 to blob directly (more reliable than fetch in field)
-const byteString = atob(imageBase64)
-const byteArray = new Uint8Array(byteString.length)
-for (let i = 0; i < byteString.length; i++) {
-  byteArray[i] = byteString.charCodeAt(i)
-}
-const blob = new Blob([byteArray], { type: 'image/jpeg' })
 
       const { error: photoError } = await supabase.storage
         .from('Stone_Images')
@@ -263,25 +262,24 @@ const blob = new Blob([byteArray], { type: 'image/jpeg' })
       <div className="bg-gray-800 p-4 flex items-center justify-between">
         <h1 className="text-xl font-bold text-green-400">Granite Graph</h1>
         <div className="flex gap-3">
-  <button
-    onClick={onMap}
-    className="text-gray-400 text-sm hover:text-white"
-  >
-    Map
-  </button>
-  <button
-    onClick={onRecent}
-    className="text-gray-400 text-sm hover:text-white"
-  >
-    Recent
-  </button>
-  <button
-    onClick={() => supabase.auth.signOut()}
-    className="text-gray-400 text-sm hover:text-white"
-  >
-    Sign Out
-  </button>
-</div>
+          <button
+            onClick={onMap}
+            className="text-gray-400 text-sm hover:text-white"
+          >
+            Map
+          </button>
+          <button
+            onClick={onRecent}
+            className="text-gray-400 text-sm hover:text-white"
+          >
+            Recent
+          </button>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="text-gray-400 text-sm hover:text-white"
+          >
+            Sign Out
+          </button>
         </div>
       </div>
 
