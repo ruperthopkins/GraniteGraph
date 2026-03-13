@@ -39,28 +39,42 @@ export default function Search({ onLogin }) {
   const [locating, setLocating] = useState(false)
 
   const handleSearch = async () => {
-    if (!query.trim()) return
-    setSearching(true)
-    setResults(null)
-    setSelected(null)
-    setStoneData(null)
+  if (!query.trim()) return
+  setSearching(true)
+  setResults(null)
+  setSelected(null)
+  setStoneData(null)
 
-    const terms = query.trim().split(/[\s,]+/).filter(Boolean)
+  const terms = query.trim().split(/[\s,]+/).filter(Boolean)
+  const lastName = terms[terms.length - 1]
+  const firstTerms = terms.slice(0, -1)
 
-    let dbQuery = supabase.from('v_deceased_search').select('*')
+  let dbQuery = supabase
+    .from('v_deceased_search')
+    .select('*')
+    .ilike('last_name', `%${lastName}%`)
 
-    if (terms.length === 1) {
-      dbQuery = dbQuery.or(`last_name.ilike.%${terms[0]}%,first_name.ilike.%${terms[0]}%`)
-    } else {
-      const orClauses = []
-      terms.forEach(term => {
-        orClauses.push(`last_name.ilike.%${term}%`)
-        orClauses.push(`first_name.ilike.%${term}%`)
-        orClauses.push(`middle_name.ilike.%${term}%`)
-        orClauses.push(`maiden_name.ilike.%${term}%`)
-      })
-      dbQuery = dbQuery.or(orClauses.join(','))
-    }
+  if (firstTerms.length > 0) {
+    // Filter by first/middle name terms
+    firstTerms.forEach(term => {
+      dbQuery = dbQuery.or(`first_name.ilike.%${term}%,middle_name.ilike.%${term}%,maiden_name.ilike.%${term}%`)
+    })
+  }
+
+  const { data, error } = await dbQuery
+    .order('last_name')
+    .order('first_name')
+    .limit(50)
+
+  if (error) {
+    console.error(error)
+    alert('Search error: ' + error.message)
+  } else {
+    setResults(data || [])
+  }
+  setSearching(false)
+}
+
 
     const { data, error } = await dbQuery.order('last_name').order('first_name').limit(50)
 
