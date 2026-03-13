@@ -38,59 +38,38 @@ export default function Search({ onLogin }) {
   const [visitorLocation, setVisitorLocation] = useState(null)
   const [locating, setLocating] = useState(false)
 
- const handleSearch = async () => {
-  if (!query.trim()) return
-  setSearching(true)
-  setResults(null)
-  setSelected(null)git
-  setStoneData(null)
+  const handleSearch = async () => {
+    if (!query.trim()) return
+    setSearching(true)
+    setResults(null)
+    setSelected(null)
+    setStoneData(null)
 
-  const terms = query.trim().split(/[\s,]+/).filter(Boolean)
-  const lastName = terms[terms.length - 1]
-  const firstTerms = terms.slice(0, -1)
+    const terms = query.trim().split(/[\s,]+/).filter(Boolean)
+    const lastName = terms[terms.length - 1]
+    const firstTerms = terms.slice(0, -1)
 
-  let dbQuery = supabase
-    .from('v_deceased_search')
-    .select('*')
-    .ilike('last_name', `%${lastName}%`)
+    let dbQuery = supabase
+      .from('v_deceased_search')
+      .select('*')
+      .ilike('last_name', '%' + lastName + '%')
 
-  if (firstTerms.length > 0) {
-    // Filter by first/middle name terms
-    firstTerms.forEach(term => {
-      dbQuery = dbQuery.or(`first_name.ilike.%${term}%,middle_name.ilike.%${term}%,maiden_name.ilike.%${term}%`)
-    })
-  }
+    if (firstTerms.length > 0) {
+      firstTerms.forEach(function(term) {
+        dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%,maiden_name.ilike.%' + term + '%')
+      })
+    }
 
-  const { data, error } = await dbQuery
-    .order('last_name')
-    .order('first_name')
-    .limit(50)
-
-  if (error) {
-    console.error(error)
-    alert('Search error: ' + error.message)
-  } else {
-    setResults(data || [])
-  }
-  setSearching(false)
-}
-
-
-    const { data, error } = await dbQuery.order('last_name').order('first_name').limit(50)
+    const { data, error } = await dbQuery
+      .order('last_name')
+      .order('first_name')
+      .limit(50)
 
     if (error) {
       console.error(error)
       alert('Search error: ' + error.message)
     } else {
-      const scored = (data || []).map(record => {
-        const fullText = [record.first_name, record.middle_name, record.last_name, record.maiden_name]
-          .filter(Boolean).join(' ').toLowerCase()
-        const score = terms.filter(t => fullText.includes(t.toLowerCase())).length
-        return { ...record, score }
-      })
-      scored.sort((a, b) => b.score - a.score)
-      const filtered = scored.filter(r => r.score === terms.length)
-      setResults(filtered.length > 0 ? filtered : scored)
+      setResults(data || [])
     }
     setSearching(false)
   }
@@ -98,23 +77,22 @@ export default function Search({ onLogin }) {
   const selectRecord = async (record) => {
     setSelected(record)
     setStoneData(null)
-    console.log('Selected:', record.full_name, 'is_photographed:', record.is_photographed)
 
     if (record.is_photographed) {
       const { data, error } = await supabase
         .from('stone_deceased')
-        .select(`stones ( stone_id, gps_accuracy_m, condition_notes, inscription_text, location, stone_photos ( photo_url, is_primary ) )`)
+        .select('stones ( stone_id, gps_accuracy_m, condition_notes, inscription_text, location, stone_photos ( photo_url, is_primary ) )')
         .eq('deceased_id', record.deceased_id)
         .limit(1)
         .single()
 
-      console.log('Stone result:', JSON.stringify(data), 'error:', JSON.stringify(error))
-
-      if (!error && data?.stones) {
-        const { data: coords, error: coordsError } = await supabase.rpc('get_stones_with_coordinates')
-        console.log('Coords:', JSON.stringify(coords), 'coordsError:', JSON.stringify(coordsError))
-        const stoneCoord = coords?.find(c => c.stone_id === data.stones.stone_id)
-        setStoneData({ ...data.stones, lat: stoneCoord?.lat, lng: stoneCoord?.lng })
+      if (!error && data && data.stones) {
+        const { data: coords } = await supabase.rpc('get_stones_with_coordinates')
+        const stoneCoord = coords ? coords.find(function(c) { return c.stone_id === data.stones.stone_id }) : null
+        setStoneData(Object.assign({}, data.stones, {
+          lat: stoneCoord ? stoneCoord.lat : null,
+          lng: stoneCoord ? stoneCoord.lng : null
+        }))
       }
     }
   }
@@ -122,11 +100,11 @@ export default function Search({ onLogin }) {
   const getMyLocation = () => {
     setLocating(true)
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      function(pos) {
         setVisitorLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude })
         setLocating(false)
       },
-      () => {
+      function() {
         alert('Could not get your location. Please enable location access.')
         setLocating(false)
       },
@@ -137,8 +115,8 @@ export default function Search({ onLogin }) {
   const openInMaps = (lat, lng) => {
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
     const url = isIOS
-      ? `maps://maps.apple.com/?daddr=${lat},${lng}&dirflg=w`
-      : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`
+      ? 'maps://maps.apple.com/?daddr=' + lat + ',' + lng + '&dirflg=w'
+      : 'https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng + '&travelmode=walking'
     window.open(url, '_blank')
   }
 
@@ -163,9 +141,9 @@ export default function Search({ onLogin }) {
             <input
               type="text"
               value={query}
-              onChange={e => setQuery(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSearch()}
-              placeholder="e.g. Hopkins, Charlotte, Ralph..."
+              onChange={function(e) { setQuery(e.target.value) }}
+              onKeyDown={function(e) { if (e.key === 'Enter') handleSearch() }}
+              placeholder="e.g. Hopkins, Charlotte Davis..."
               className="flex-1 bg-gray-800 border border-gray-700 rounded-lg p-3 text-white placeholder-gray-500 outline-none focus:ring-2 focus:ring-green-500"
             />
             <button
@@ -186,44 +164,46 @@ export default function Search({ onLogin }) {
                 <p className="text-gray-400">No records found. Try a different spelling.</p>
               </div>
             )}
-            {results.map(record => (
-              <div
-                key={record.deceased_id}
-                onClick={() => selectRecord(record)}
-                className="bg-gray-800 rounded-lg p-4 mb-2 cursor-pointer hover:bg-gray-700 border border-gray-700"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-bold text-white">{record.full_name}</p>
-                    {record.maiden_name && <p className="text-gray-400 text-sm">née {record.maiden_name}</p>}
-                    <div className="flex gap-3 mt-1">
-                      {record.date_of_birth_verbatim && <p className="text-gray-500 text-xs">b. {record.date_of_birth_verbatim}</p>}
-                      {record.date_of_death_verbatim && <p className="text-gray-500 text-xs">d. {record.date_of_death_verbatim}</p>}
+            {results.map(function(record) {
+              return (
+                <div
+                  key={record.deceased_id}
+                  onClick={function() { selectRecord(record) }}
+                  className="bg-gray-800 rounded-lg p-4 mb-2 cursor-pointer hover:bg-gray-700 border border-gray-700"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-bold text-white">{record.full_name}</p>
+                      {record.maiden_name && <p className="text-gray-400 text-sm">nee {record.maiden_name}</p>}
+                      <div className="flex gap-3 mt-1">
+                        {record.date_of_birth_verbatim && <p className="text-gray-500 text-xs">b. {record.date_of_birth_verbatim}</p>}
+                        {record.date_of_death_verbatim && <p className="text-gray-500 text-xs">d. {record.date_of_death_verbatim}</p>}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      {record.is_photographed
+                        ? <span className="text-green-400 text-xs">Photographed</span>
+                        : <span className="text-gray-600 text-xs">Not yet cataloged</span>}
                     </div>
                   </div>
-                  <div className="text-right">
-                    {record.is_photographed
-                      ? <span className="text-green-400 text-xs">📷 Photographed</span>
-                      : <span className="text-gray-600 text-xs">Not yet cataloged</span>}
-                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
 
         {selected && (
           <div>
             <button
-              onClick={() => { setSelected(null); setStoneData(null) }}
+              onClick={function() { setSelected(null); setStoneData(null) }}
               className="text-gray-400 text-sm hover:text-white mb-4 flex items-center gap-1"
             >
-              ← Back to results
+              Back to results
             </button>
 
-            {stoneData?.stone_photos?.length > 0 && (
+            {stoneData && stoneData.stone_photos && stoneData.stone_photos.length > 0 && (
               <img
-                src={stoneData.stone_photos.find(p => p.is_primary)?.photo_url || stoneData.stone_photos[0].photo_url}
+                src={(stoneData.stone_photos.find(function(p) { return p.is_primary }) || stoneData.stone_photos[0]).photo_url}
                 alt="Gravestone"
                 className="w-full rounded-lg mb-4"
               />
@@ -231,7 +211,7 @@ export default function Search({ onLogin }) {
 
             <div className="bg-gray-800 rounded-lg p-4 mb-4">
               <h2 className="text-xl font-bold text-white mb-1">{selected.full_name}</h2>
-              {selected.maiden_name && <p className="text-gray-400 text-sm mb-2">née {selected.maiden_name}</p>}
+              {selected.maiden_name && <p className="text-gray-400 text-sm mb-2">nee {selected.maiden_name}</p>}
               <div className="flex gap-4">
                 {selected.date_of_birth_verbatim && (
                   <div>
@@ -259,12 +239,12 @@ export default function Search({ onLogin }) {
                   </div>
                 )}
                 {stoneData.gps_accuracy_m && (
-                  <p className="text-gray-600 text-xs mt-2">GPS accuracy: {stoneData.gps_accuracy_m.toFixed(1)}m</p>
+                  <p className="text-gray-600 text-xs mt-2">GPS accuracy: {Number(stoneData.gps_accuracy_m).toFixed(1)}m</p>
                 )}
               </div>
             )}
 
-            {stoneData?.lat && stoneData?.lng && (
+            {stoneData && stoneData.lat && stoneData.lng && (
               <div className="mb-4">
                 <p className="text-green-400 font-bold mb-2">Find this stone</p>
                 <div style={{ height: '220px', borderRadius: '8px', overflow: 'hidden', marginBottom: '12px' }}>
@@ -285,7 +265,7 @@ export default function Search({ onLogin }) {
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => openInMaps(stoneData.lat, stoneData.lng)}
+                    onClick={function() { openInMaps(stoneData.lat, stoneData.lng) }}
                     className="flex-1 bg-blue-700 hover:bg-blue-600 text-white py-3 rounded-lg font-bold text-sm"
                   >
                     Open in Maps
