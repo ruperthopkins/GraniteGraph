@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from './supabaseClient'
 import Login from './Login'
 import Home from './Home'
@@ -14,49 +14,39 @@ function App() {
   const [profileChecked, setProfileChecked] = useState(false)
   const [displayName, setDisplayName] = useState('')
   const [savingProfile, setSavingProfile] = useState(false)
+  const fetchingProfile = useRef(false)
 
   useEffect(() => {
-    let mounted = true
-
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!mounted) return
       setSession(session)
       setAuthChecked(true)
-      if (session) {
-        fetchProfile(session.user.id, mounted)
-      } else {
-        setProfileChecked(true)
-      }
+      if (session) fetchProfile(session.user.id)
+      else setProfileChecked(true)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return
-      setSession(prev => {
-        if (prev?.user?.id === session?.user?.id) return prev
-        if (session) {
-          setPage('home')
-          fetchProfile(session.user.id, mounted)
-        } else {
-          setProfile(null)
-          setProfileChecked(false)
-        }
-        return session
-      })
+      setSession(session)
+      if (session) {
+        setPage('home')
+        fetchProfile(session.user.id)
+      } else {
+        setProfile(null)
+        setProfileChecked(false)
+        fetchingProfile.current = false
+      }
     })
 
-    return () => {
-      mounted = false
-      subscription.unsubscribe()
-    }
+    return () => subscription.unsubscribe()
   }, [])
 
-  const fetchProfile = async (userId, mounted) => {
+  const fetchProfile = async (userId) => {
+    if (fetchingProfile.current) return
+    fetchingProfile.current = true
     const { data } = await supabase
       .from('volunteer_profiles')
       .select('*')
       .eq('user_id', userId)
       .single()
-    if (!mounted) return
     setProfile(data || null)
     setProfileChecked(true)
   }
