@@ -296,7 +296,13 @@ condition_notes: results.stone_notes || '',
           confirmed_at: new Date().toISOString(),
           match_method: 'volunteer_confirmed'
         })
-
+ // Update maiden name if Gemini found one and record doesn't have it yet
+      if (person.maiden_name && !matchedRecord.maiden_name) {
+        await supabase
+          .from('deceased')
+          .update({ maiden_name: person.maiden_name })
+          .eq('deceased_id', matchedRecord.deceased_id)
+      }
       await supabase
         .from('activity_log')
         .insert({
