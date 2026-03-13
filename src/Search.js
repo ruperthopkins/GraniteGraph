@@ -38,11 +38,11 @@ export default function Search({ onLogin }) {
   const [visitorLocation, setVisitorLocation] = useState(null)
   const [locating, setLocating] = useState(false)
 
-  const handleSearch = async () => {
+ const handleSearch = async () => {
   if (!query.trim()) return
   setSearching(true)
   setResults(null)
-  setSelected(null)
+  setSelected(null)git
   setStoneData(null)
 
   const terms = query.trim().split(/[\s,]+/).filter(Boolean)
