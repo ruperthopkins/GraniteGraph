@@ -29,7 +29,7 @@ const visitorIcon = new L.Icon({
   shadowSize: [41, 41]
 })
 
-export default function Search({ onLogin }) {
+export default function Search({ onLogin, onHome }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -46,17 +46,24 @@ export default function Search({ onLogin }) {
     setStoneData(null)
 
     const terms = query.trim().split(/[\s,]+/).filter(Boolean)
-    const lastName = terms[terms.length - 1]
-    const firstTerms = terms.slice(0, -1)
 
-    let dbQuery = supabase
-      .from('v_deceased_search')
-      .select('*')
-      .ilike('last_name', '%' + lastName + '%')
+    let dbQuery = supabase.from('v_deceased_search').select('*')
 
-    if (firstTerms.length > 0) {
+    if (terms.length === 1) {
+      dbQuery = dbQuery.or(
+        'first_name.ilike.%' + terms[0] + '%,' +
+        'last_name.ilike.%' + terms[0] + '%,' +
+        'maiden_name.ilike.%' + terms[0] + '%'
+      )
+    } else {
+      const lastName = terms[terms.length - 1]
+      const firstTerms = terms.slice(0, -1)
+      dbQuery = dbQuery.ilike('last_name', '%' + lastName + '%')
       firstTerms.forEach(function(term) {
-        dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%,maiden_name.ilike.%' + term + '%')
+        dbQuery = dbQuery.or(
+          'first_name.ilike.%' + term + '%,' +
+          'middle_name.ilike.%' + term + '%'
+        )
       })
     }
 
@@ -125,26 +132,33 @@ export default function Search({ onLogin }) {
       <div className="bg-gray-800 p-4 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-green-400">Granite Graph</h1>
-          <p className="text-gray-500 text-xs">Historic Cemetery Records</p>
+          <p className="text-gray-400 text-xs">Historic Cemetery Records</p>
         </div>
-        {onLogin && (
-          <button onClick={onLogin} className="text-gray-400 text-sm hover:text-white border border-gray-600 px-3 py-1 rounded">
-            Volunteer Login
-          </button>
-        )}
+        <div className="flex gap-3">
+          {onHome && (
+            <button onClick={onHome} className="text-gray-300 text-sm hover:text-white">
+              Photograph
+            </button>
+          )}
+          {onLogin && (
+            <button onClick={onLogin} className="text-gray-300 text-sm hover:text-white border border-gray-600 px-3 py-1 rounded">
+              Volunteer Login
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="p-4 max-w-lg mx-auto">
         <div className="mb-6">
-          <p className="text-gray-400 text-sm mb-3">Search for a person buried in this cemetery. Enter any part of their name.</p>
+          <p className="text-gray-300 text-sm mb-3">Search by last name, first name, or first and last name.</p>
           <div className="flex gap-2">
             <input
               type="text"
               value={query}
               onChange={function(e) { setQuery(e.target.value) }}
               onKeyDown={function(e) { if (e.key === 'Enter') handleSearch() }}
-              placeholder="e.g. Hopkins, Charlotte Davis..."
-              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg p-3 text-white placeholder-gray-500 outline-none focus:ring-2 focus:ring-green-500"
+              placeholder="Last name, First name, or First Last"
+              className="flex-1 bg-gray-800 border border-gray-600 rounded-lg p-3 text-white placeholder-gray-400 outline-none focus:ring-2 focus:ring-green-500"
             />
             <button
               onClick={handleSearch}
@@ -161,7 +175,7 @@ export default function Search({ onLogin }) {
             <p className="text-green-400 font-bold mb-3">{results.length} result{results.length !== 1 ? 's' : ''} found</p>
             {results.length === 0 && (
               <div className="bg-gray-800 rounded-lg p-4">
-                <p className="text-gray-400">No records found. Try a different spelling.</p>
+                <p className="text-gray-300">No records found. Try a different spelling.</p>
               </div>
             )}
             {results.map(function(record) {
@@ -169,21 +183,21 @@ export default function Search({ onLogin }) {
                 <div
                   key={record.deceased_id}
                   onClick={function() { selectRecord(record) }}
-                  className="bg-gray-800 rounded-lg p-4 mb-2 cursor-pointer hover:bg-gray-700 border border-gray-700"
+                  className="bg-gray-800 rounded-lg p-4 mb-2 cursor-pointer hover:bg-gray-700 border border-gray-600"
                 >
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-bold text-white">{record.full_name}</p>
-                      {record.maiden_name && <p className="text-gray-400 text-sm">nee {record.maiden_name}</p>}
+                      {record.maiden_name && <p className="text-gray-300 text-sm">nee {record.maiden_name}</p>}
                       <div className="flex gap-3 mt-1">
-                        {record.date_of_birth_verbatim && <p className="text-gray-500 text-xs">b. {record.date_of_birth_verbatim}</p>}
-                        {record.date_of_death_verbatim && <p className="text-gray-500 text-xs">d. {record.date_of_death_verbatim}</p>}
+                        {record.date_of_birth_verbatim && <p className="text-gray-300 text-xs">b. {record.date_of_birth_verbatim}</p>}
+                        {record.date_of_death_verbatim && <p className="text-gray-300 text-xs">d. {record.date_of_death_verbatim}</p>}
                       </div>
                     </div>
                     <div className="text-right">
                       {record.is_photographed
                         ? <span className="text-green-400 text-xs">Photographed</span>
-                        : <span className="text-gray-600 text-xs">Not yet cataloged</span>}
+                        : <span className="text-gray-400 text-xs">Not yet cataloged</span>}
                     </div>
                   </div>
                 </div>
@@ -196,7 +210,7 @@ export default function Search({ onLogin }) {
           <div>
             <button
               onClick={function() { setSelected(null); setStoneData(null) }}
-              className="text-gray-400 text-sm hover:text-white mb-4 flex items-center gap-1"
+              className="text-gray-300 text-sm hover:text-white mb-4 flex items-center gap-1"
             >
               Back to results
             </button>
@@ -211,35 +225,35 @@ export default function Search({ onLogin }) {
 
             <div className="bg-gray-800 rounded-lg p-4 mb-4">
               <h2 className="text-xl font-bold text-white mb-1">{selected.full_name}</h2>
-              {selected.maiden_name && <p className="text-gray-400 text-sm mb-2">nee {selected.maiden_name}</p>}
+              {selected.maiden_name && <p className="text-gray-300 text-sm mb-2">nee {selected.maiden_name}</p>}
               <div className="flex gap-4">
                 {selected.date_of_birth_verbatim && (
                   <div>
-                    <p className="text-gray-500 text-xs">Born</p>
-                    <p className="text-gray-300 text-sm">{selected.date_of_birth_verbatim}</p>
+                    <p className="text-gray-400 text-xs">Born</p>
+                    <p className="text-white text-sm">{selected.date_of_birth_verbatim}</p>
                   </div>
                 )}
                 {selected.date_of_death_verbatim && (
                   <div>
-                    <p className="text-gray-500 text-xs">Died</p>
-                    <p className="text-gray-300 text-sm">{selected.date_of_death_verbatim}</p>
+                    <p className="text-gray-400 text-xs">Died</p>
+                    <p className="text-white text-sm">{selected.date_of_death_verbatim}</p>
                   </div>
                 )}
               </div>
-              {selected.biography && <p className="text-gray-400 text-sm mt-3">{selected.biography}</p>}
+              {selected.biography && <p className="text-gray-300 text-sm mt-3">{selected.biography}</p>}
             </div>
 
             {stoneData && (
               <div className="bg-gray-800 rounded-lg p-4 mb-4">
-                {stoneData.condition_notes && <p className="text-gray-400 text-sm mb-2">{stoneData.condition_notes}</p>}
+                {stoneData.condition_notes && <p className="text-gray-300 text-sm mb-2">{stoneData.condition_notes}</p>}
                 {stoneData.inscription_text && (
                   <div className="mt-2">
-                    <p className="text-gray-500 text-xs mb-1">Inscription</p>
-                    <p className="text-gray-300 text-sm font-mono">{stoneData.inscription_text}</p>
+                    <p className="text-gray-400 text-xs mb-1">Inscription</p>
+                    <p className="text-white text-sm font-mono">{stoneData.inscription_text}</p>
                   </div>
                 )}
                 {stoneData.gps_accuracy_m && (
-                  <p className="text-gray-600 text-xs mt-2">GPS accuracy: {Number(stoneData.gps_accuracy_m).toFixed(1)}m</p>
+                  <p className="text-gray-400 text-xs mt-2">GPS accuracy: {Number(stoneData.gps_accuracy_m).toFixed(1)}m</p>
                 )}
               </div>
             )}
@@ -283,9 +297,15 @@ export default function Search({ onLogin }) {
 
             {!selected.is_photographed && (
               <div className="bg-gray-800 border border-gray-600 rounded-lg p-4">
-                <p className="text-gray-400 text-sm">
-                  This stone has not been photographed yet. If you are a volunteer, log in to catalog it.
-                </p>
+                <p className="text-gray-300 text-sm">This stone has not been photographed yet.</p>
+                {!onLogin && (
+                  <button
+                    onClick={onHome}
+                    className="mt-3 w-full bg-green-700 hover:bg-green-600 text-white font-bold py-2 rounded-lg text-sm"
+                  >
+                    Photograph this stone
+                  </button>
+                )}
               </div>
             )}
           </div>
