@@ -218,131 +218,126 @@ export default function Home({ session, onMap, onRecent, onSearch }) {
   }
 
   const confirmMatch = async (person, matchedRecord) => {
-    try {
-      // Capture GPS
-      const position = await new Promise((resolve, reject) => {
+  try {
+    // Start GPS and image upload simultaneously
+    const byteString = atob(imageBase64)
+    const byteArray = new Uint8Array(byteString.length)
+    for (let i = 0; i < byteString.length; i++) {
+      byteArray[i] = byteString.charCodeAt(i)
+    }
+    const blob = new Blob([byteArray], { type: 'image/jpeg' })
+    const fileName = `${Date.now()}_${session.user.id}.jpg`
+
+    // Run GPS and photo upload in parallel
+    const [position, uploadResult] = await Promise.all([
+      new Promise((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0
+          timeout: 5000,
+          maximumAge: 30000
         })
-      })
-      const lat = position.coords.latitude
-      const lng = position.coords.longitude
-      const accuracy = position.coords.accuracy
-
-      // Convert base64 to blob
-      const byteString = atob(imageBase64)
-      const byteArray = new Uint8Array(byteString.length)
-      for (let i = 0; i < byteString.length; i++) {
-        byteArray[i] = byteString.charCodeAt(i)
-      }
-      const blob = new Blob([byteArray], { type: 'image/jpeg' })
-      const fileName = `${Date.now()}_${session.user.id}.jpg`
-
-      const { error: photoError } = await supabase.storage
+      }),
+      supabase.storage
         .from('Stone_Images')
         .upload(fileName, blob, { contentType: 'image/jpeg' })
+    ])
 
-      if (photoError) throw photoError
+    if (uploadResult.error) throw uploadResult.error
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('Stone_Images')
-        .getPublicUrl(fileName)
+    const lat = position.coords.latitude
+    const lng = position.coords.longitude
+    const accuracy = position.coords.accuracy
 
-      // Create stone record with GPS and Gemini notes
-      const { data: stoneData, error: stoneError } = await supabase
-        .from('stones')
-        .insert({
-          cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
-          volunteer_notes: person.notes || '',
-          stone_condition: results.stone_condition || 'fair',
-condition_notes: results.stone_notes || '',
-          inscription_text: results.peopleWithMatches
-            .map(p => [
-              p.person.first_name,
-              p.person.middle_name,
-              p.person.last_name,
-              p.person.date_of_birth_verbatim,
-              p.person.date_of_death_verbatim,
-              ...(p.person.kinship_hints || [])
-            ].filter(Boolean).join(' '))
-            .join(' | '),
-          field_status: 'complete',
-          location: `SRID=4326;POINT(${lng} ${lat})`,
-          gps_accuracy_m: accuracy
+    const { data: { publicUrl } } = supabase.storage
+      .from('Stone_Images')
+      .getPublicUrl(fileName)
+
+    // Run all database inserts in parallel
+    const { data: stoneData, error: stoneError } = await supabase
+      .from('stones')
+      .insert({
+        cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+        volunteer_notes: person.notes || '',
+        stone_condition: results.stone_condition || 'fair',
+        condition_notes: results.stone_notes || '',
+        inscription_text: results.peopleWithMatches
+          .map(p => [
+            p.person.first_name,
+            p.person.middle_name,
+            p.person.last_name,
+            p.person.date_of_birth_verbatim,
+            p.person.date_of_death_verbatim,
+            ...(p.person.kinship_hints || [])
+          ].filter(Boolean).join(' '))
+          .join(' | '),
+        field_status: 'complete',
+        location: `SRID=4326;POINT(${lng} ${lat})`,
+        gps_accuracy_m: accuracy
+      })
+      .select()
+      .single()
+
+    if (stoneError) throw stoneError
+
+    // Run remaining inserts in parallel
+    await Promise.all([
+      supabase.from('stone_photos').insert({
+        stone_id: stoneData.stone_id,
+        photo_url: publicUrl,
+        side: 'front',
+        taken_by: session.user.id,
+        is_primary: true
+      }),
+      supabase.from('stone_deceased').insert({
+        stone_id: stoneData.stone_id,
+        deceased_id: matchedRecord.deceased_id,
+        confirmed_by: session.user.id,
+        confirmed_at: new Date().toISOString(),
+        match_method: 'volunteer_confirmed'
+      }),
+      supabase.from('activity_log').insert({
+        user_id: session.user.id,
+        action: 'match_confirmed',
+        entity_type: 'stone_deceased',
+        entity_id: stoneData.stone_id,
+        cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+        metadata: {
+          deceased_name: matchedRecord.full_name,
+          gemini_confidence: person.confidence,
+          kinship_hints: person.kinship_hints,
+          gps: { lat, lng, accuracy }
+        }
+      }),
+      // Update maiden name if Gemini found one
+      person.maiden_name && !matchedRecord.maiden_name
+        ? supabase.from('deceased').update({ maiden_name: person.maiden_name }).eq('deceased_id', matchedRecord.deceased_id)
+        : Promise.resolve()
+    ])
+
+    // Check for kinship suggestions
+    const relationships = parseKinshipHints(person.kinship_hints, matchedRecord.full_name)
+    if (relationships.length > 0) {
+      const suggestionsWithCandidates = await Promise.all(
+        relationships.map(async (rel) => {
+          const candidates = await searchForRelative(rel.rawName)
+          return { ...rel, candidates, subjectId: matchedRecord.deceased_id, subjectName: matchedRecord.full_name }
         })
-        .select()
-        .single()
-
-      if (stoneError) throw stoneError
-
-      await supabase
-        .from('stone_photos')
-        .insert({
-          stone_id: stoneData.stone_id,
-          photo_url: publicUrl,
-          side: 'front',
-          taken_by: session.user.id,
-          is_primary: true
-        })
-
-      await supabase
-        .from('stone_deceased')
-        .insert({
-          stone_id: stoneData.stone_id,
-          deceased_id: matchedRecord.deceased_id,
-          confirmed_by: session.user.id,
-          confirmed_at: new Date().toISOString(),
-          match_method: 'volunteer_confirmed'
-        })
- // Update maiden name if Gemini found one and record doesn't have it yet
-      if (person.maiden_name && !matchedRecord.maiden_name) {
-        await supabase
-          .from('deceased')
-          .update({ maiden_name: person.maiden_name })
-          .eq('deceased_id', matchedRecord.deceased_id)
-      }
-      await supabase
-        .from('activity_log')
-        .insert({
-          user_id: session.user.id,
-          action: 'match_confirmed',
-          entity_type: 'stone_deceased',
-          entity_id: stoneData.stone_id,
-          cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
-          metadata: {
-            deceased_name: matchedRecord.full_name,
-            gemini_confidence: person.confidence,
-            kinship_hints: person.kinship_hints,
-            gps: { lat, lng, accuracy }
-          }
-        })
-
-      // Now build kinship suggestions
-      const relationships = parseKinshipHints(person.kinship_hints, matchedRecord.full_name)
-      if (relationships.length > 0) {
-        const suggestionsWithCandidates = await Promise.all(
-          relationships.map(async (rel) => {
-            const candidates = await searchForRelative(rel.rawName)
-            return { ...rel, candidates, subjectId: matchedRecord.deceased_id, subjectName: matchedRecord.full_name }
-          })
-        )
-        setKinshipSuggestions(suggestionsWithCandidates.filter(s => s.candidates.length > 0))
-        setResults(null)
-        setImage(null)
-        setImageBase64(null)
-      } else {
-        alert('Match confirmed! ' + matchedRecord.full_name + ' linked.\nGPS: ' + lat.toFixed(6) + ', ' + lng.toFixed(6))
-        setResults(null)
-        setImage(null)
-        setImageBase64(null)
-      }
-
-    } catch (err) {
-      console.error(err)
-      alert('Error saving match: ' + err.message)
+      )
+      setKinshipSuggestions(suggestionsWithCandidates.filter(s => s.candidates.length > 0))
+      setResults(null)
+      setImage(null)
+      setImageBase64(null)
+    } else {
+      alert('Match confirmed! ' + matchedRecord.full_name + '\nGPS: ' + lat.toFixed(6) + ', ' + lng.toFixed(6))
+      setResults(null)
+      setImage(null)
+      setImageBase64(null)
     }
+
+  } catch (err) {
+    console.error(err)
+    alert('Error saving match: ' + err.message)
+  }
   }
 
   const confirmKinship = async (suggestion, candidate) => {
