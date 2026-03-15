@@ -112,12 +112,11 @@ function App() {
       {page === 'search' && <Search onLogin={null} onHome={() => setPage('home')} />}
       {page === 'home' && (
         <Home
-          session={session}
-          profile={profile}
-          onMap={() => setPage('map')}
-          onRecent={() => setPage('recent')}
-          onSearch={() => setPage('search')}
-        />
+  session={session}
+  profile={profile}
+  onMap={() => setPage('map')}
+  onRecent={() => setPage('recent')}
+/>
       )}
       {page === 'map' && <Map onBack={() => setPage('home')} />}
       {page === 'recent' && <Recent onBack={() => setPage('home')} />}
