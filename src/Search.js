@@ -50,12 +50,11 @@ export default function Search({ onLogin, onHome }) {
     let dbQuery = supabase.from('v_deceased_search').select('*')
 
     if (terms.length === 1) {
-      dbQuery = dbQuery.or(
-        'first_name.ilike.%' + terms[0] + '%,' +
-        'last_name.ilike.%' + terms[0] + '%,' +
-        'maiden_name.ilike.%' + terms[0] + '%'
-      )
-    } else {
+  const t = terms[0]
+  dbQuery = dbQuery.or(
+    `first_name.ilike.*${t}*,last_name.ilike.*${t}*,maiden_name.ilike.*${t}*`
+  )
+} else {
       const lastName = terms[terms.length - 1]
       const firstTerms = terms.slice(0, -1)
       dbQuery = dbQuery.ilike('last_name', '%' + lastName + '%')
