@@ -237,11 +237,12 @@ export default function Home({ session, onMap, onRecent }) {
       if (!geminiData.candidates || geminiData.candidates.length === 0) {
         throw new Error('Gemini error: ' + (geminiData.error?.message || JSON.stringify(geminiData)))
       }
-      const extracted = JSON.parse(geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim())
-      const peopleWithMatches = await Promise.all(
-        (extracted.people || []).map(async (person) => ({ person, matches: await searchForPerson(person) }))
-      )
-      setResults({ peopleWithMatches, stone_notes: extracted.stone_notes, stone_condition: extracted.stone_condition || 'fair' })
+  const extracted = JSON.parse(geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim())
+console.log('Gemini people:', JSON.stringify(extracted.people))
+const peopleWithMatches = await Promise.all(
+  (extracted.people || []).map(async (person) => ({ person, matches: await searchForPerson(person) }))
+)
+setResults({ peopleWithMatches, stone_notes: extracted.stone_notes, stone_condition: extracted.stone_condition || 'fair' })
 
       // Auto-launch search if first person has 0 matches
       const firstNoMatch = peopleWithMatches.find(p => p.matches.length === 0)
