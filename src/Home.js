@@ -98,26 +98,50 @@ export default function Home({ session, onMap, onRecent }) {
   })
 
   const searchForPerson = async (person) => {
-    let searchTerm = person.last_name || ''
-    if (!searchTerm && person.kinship_hints && person.kinship_hints.length > 0) {
-      const words = person.kinship_hints.join(' ').split(' ')
-      searchTerm = words[words.length - 1]
-    }
-    const deathYearMatch = (person.date_of_death_verbatim || '').match(/\d{4}/)
-    const extractedYear = deathYearMatch ? parseInt(deathYearMatch[0]) : null
-    let query = supabase.from('v_deceased_search').select('*').ilike('last_name', '%' + searchTerm + '%')
-    if (person.first_name) query = query.ilike('first_name', '%' + person.first_name + '%')
-    const { data: rawMatches, error } = await query.limit(20)
-    if (error) { console.error(error); return [] }
-    let matches = rawMatches || []
-    if (extractedYear && matches.length > 0) {
-      matches = matches.map(m => ({
-        ...m,
-        yearDiff: m.date_of_death ? Math.abs(new Date(m.date_of_death).getFullYear() - extractedYear) : 999
-      })).sort((a, b) => a.yearDiff - b.yearDiff).slice(0, 10)
-    }
-    return matches
+  let searchTerm = person.last_name || ''
+  if (!searchTerm && person.kinship_hints && person.kinship_hints.length > 0) {
+    const words = person.kinship_hints.join(' ').split(' ')
+    searchTerm = words[words.length - 1]
   }
+  if (!searchTerm) return []
+
+  const deathYearMatch = (person.date_of_death_verbatim || '').match(/\d{4}/)
+  const extractedYear = deathYearMatch ? parseInt(deathYearMatch[0]) : null
+
+  // Search by last name only first, then filter by first name loosely
+  let query = supabase.from('v_deceased_search').select('*')
+    .ilike('last_name', '%' + searchTerm + '%')
+
+  // Only add first name filter if we have it AND no middle name confusion
+  if (person.first_name && !person.middle_name) {
+    query = query.ilike('first_name', '%' + person.first_name + '%')
+  }
+
+  const { data: rawMatches, error } = await query.limit(30)
+  if (error) { console.error(error); return [] }
+
+  let matches = rawMatches || []
+
+  // Score by full name similarity and year proximity
+  matches = matches.map(m => {
+    const yearDiff = (extractedYear && m.date_of_death)
+      ? Math.abs(new Date(m.date_of_death).getFullYear() - extractedYear) : 999
+    // Check if first name matches at all
+    const firstNameMatch = person.first_name
+      ? m.first_name.toLowerCase().includes(person.first_name.toLowerCase().substring(0, 3))
+      : true
+    return { ...m, yearDiff, firstNameMatch }
+  })
+  .sort((a, b) => {
+    // Prioritize year match, then first name match
+    if (a.yearDiff !== b.yearDiff) return a.yearDiff - b.yearDiff
+    if (a.firstNameMatch !== b.firstNameMatch) return b.firstNameMatch - a.firstNameMatch
+    return 0
+  })
+  .slice(0, 10)
+
+  return matches
+}
 
   const searchForRelative = async (rawName) => {
     if (!rawName) return []
