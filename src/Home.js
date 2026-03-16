@@ -442,7 +442,8 @@ setResults({ peopleWithMatches, stone_notes: extracted.stone_notes, stone_condit
         <Header />
         <div className="p-6 max-w-lg mx-auto">
           <p className="text-gray-300 text-center mb-8 mt-4">What would you like to do?</p>
-          <button onClick={() => setMode('photograph')}
+          <input type="file" accept="image/*" capture="environment" ref={fileInput} onChange={(e) => { handlePhoto(e); setMode('photograph') }} className="hidden" />
+          <button onClick={() => fileInput.current.click()}
             className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-8 rounded-lg text-xl mb-4">
             📷 Photograph Stone
           </button>
@@ -595,14 +596,7 @@ setResults({ peopleWithMatches, stone_notes: extracted.stone_notes, stone_condit
           </div>
         )}
 
-        <input type="file" accept="image/*" capture="environment" ref={fileInput} onChange={handlePhoto} className="hidden" />
-
-        {!image && (
-          <button onClick={() => fileInput.current.click()}
-            className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-8 rounded-lg text-xl mb-4">
-            📷 Take Photo
-          </button>
-        )}
+      
 
         {image && (
           <div className="mb-4">
