@@ -340,18 +340,21 @@ export default function Home({ session, onMap, onRecent }) {
       // From explicit kinship hints
       for (const rel of relationships) {
         if (rel.implicit && newConfirmedPeople.length > 1) {
-          // "His Wife" / "Her Wife" — suggest spouse with previously confirmed person
-          const previousPerson = newConfirmedPeople[newConfirmedPeople.length - 2]
-          allSuggestions.push({
-            type: 'spouse',
-            rawName: previousPerson.full_name,
-            hint: rel.hint,
-            implicit: true,
-            candidates: [previousPerson],
-            subjectId: matchedRecord.deceased_id,
-            subjectName: matchedRecord.full_name
-          })
-        } else if (rel.rawName) {
+  // Find the other confirmed people on this stone (not the current person)
+  const otherPeople = newConfirmedPeople.filter(p => p.deceased_id !== matchedRecord.deceased_id)
+  if (otherPeople.length > 0) {
+    const previousPerson = otherPeople[otherPeople.length - 1]
+    allSuggestions.push({
+      type: 'spouse',
+      rawName: previousPerson.full_name,
+      hint: rel.hint,
+      implicit: true,
+      candidates: [previousPerson],
+      subjectId: matchedRecord.deceased_id,
+      subjectName: matchedRecord.full_name
+    })
+  }
+} else if (rel.rawName) {
           const candidates = await searchForRelative(rel.rawName)
           if (candidates.length > 0) {
             allSuggestions.push({ ...rel, candidates, subjectId: matchedRecord.deceased_id, subjectName: matchedRecord.full_name })
