@@ -785,9 +785,7 @@ setResults({ peopleWithMatches, stone_notes: extracted.stone_notes, stone_condit
               )}
             </div>
 
-            <button onClick={clearPhotoResults} className="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg mt-2">
-              Clear and Start Over
-            </button>
+           
             <button onClick={clearPhotoResults} className="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg mt-2">
               Clear and Start Over
             </button>
