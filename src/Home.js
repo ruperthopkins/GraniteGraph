@@ -67,10 +67,14 @@ export default function Home({ session, onMap, onRecent }) {
   const [visitorLocation, setVisitorLocation] = useState(null)
   const [locating, setLocating] = useState(false)
   const [pendingPhotoFor, setPendingPhotoFor] = useState(null)
-  const fileInput = useRef(null)
+ 
+const fileInput = useRef(null)
   // Stone sharing: track the stone created for this photo session
   const currentStoneRef = useRef(null)
-
+  // Field notes
+  const [volunteerNotes, setVolunteerNotes] = useState('')
+  const [selectedFlags, setSelectedFlags] = useState([])
+  const [showNotes, setShowNotes] = useState(false)
   const handlePhoto = (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -419,6 +423,7 @@ setResults({ peopleWithMatches, stone_notes: extracted.stone_notes, stone_condit
     setResults(null); setImage(null); setImageBase64(null)
     setKinshipSuggestions(null); setConfirming(null)
     setConfirmedPeople([]); currentStoneRef.current = null
+    setVolunteerNotes(''); setSelectedFlags([]); setShowNotes(false)
     setMode('landing')
   }
 
@@ -708,6 +713,81 @@ setResults({ peopleWithMatches, stone_notes: extracted.stone_notes, stone_condit
                 ))}
               </div>
             ))}
+            {/* Optional Field Notes Panel */}
+            <div className="mb-4">
+              <button
+                onClick={() => setShowNotes(!showNotes)}
+                className="w-full bg-gray-800 border border-gray-600 rounded-lg py-3 px-4 text-left text-gray-300 text-sm flex items-center justify-between"
+              >
+                <span>📝 Add Field Notes (optional)</span>
+                <span>{showNotes ? '▲' : '▼'}</span>
+              </button>
+
+              {showNotes && (
+                <div className="bg-gray-800 border border-gray-600 border-t-0 rounded-b-lg p-4">
+                  <textarea
+                    value={volunteerNotes}
+                    onChange={e => setVolunteerNotes(e.target.value)}
+                    placeholder="Observations about this stone... (e.g. stone leaning, moss on dates, possible inscription on back)"
+                    className="w-full bg-gray-700 border border-gray-600 rounded-lg p-3 text-white placeholder-gray-400 text-sm outline-none focus:ring-2 focus:ring-green-500 mb-3"
+                    rows={3}
+                  />
+                  <p className="text-gray-400 text-xs mb-2">Flag for follow-up:</p>
+                  {[
+                    'Needs re-photographing',
+                    'Check back or other side',
+                    'Stone needs cleaning',
+                    'Person not in database — needs new record',
+                    'Other issue'
+                  ].map(flag => (
+                    <label key={flag} className="flex items-center gap-2 mb-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedFlags.includes(flag)}
+                        onChange={e => {
+                          if (e.target.checked) setSelectedFlags(prev => [...prev, flag])
+                          else setSelectedFlags(prev => prev.filter(f => f !== flag))
+                        }}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-gray-300 text-sm">{flag}</span>
+                    </label>
+                  ))}
+                  {(volunteerNotes || selectedFlags.length > 0) && currentStoneRef.current && (
+                    <button
+                      onClick={async () => {
+                        const { error } = await supabase
+                          .from('stones')
+                          .update({
+                            volunteer_notes: volunteerNotes,
+                            flags: selectedFlags,
+                            field_status: selectedFlags.includes('Person not in database — needs new record')
+                              ? 'needs_curation'
+                              : selectedFlags.length > 0 ? 'needs_followup' : 'complete'
+                          })
+                          .eq('stone_id', currentStoneRef.current.stoneData.stone_id)
+                        if (error) {
+                          alert('Error saving notes: ' + error.message)
+                        } else {
+                          alert('Notes saved!')
+                          setShowNotes(false)
+                        }
+                      }}
+                      className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-2 rounded-lg text-sm mt-2"
+                    >
+                      Save Notes
+                    </button>
+                  )}
+                  {!currentStoneRef.current && (
+                    <p className="text-yellow-400 text-xs mt-2">Confirm a match first to save notes to a stone.</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <button onClick={clearPhotoResults} className="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg mt-2">
+              Clear and Start Over
+            </button>
             <button onClick={clearPhotoResults} className="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg mt-2">
               Clear and Start Over
             </button>
