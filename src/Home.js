@@ -121,21 +121,22 @@ const fileInput = useRef(null)
     query = query.ilike('first_name', '%' + person.first_name + '%')
   }
 
-  const { data: rawMatches, error } = await query.limit(30)
+  const { data: rawMatches, error } = await query.limit(50)
   if (error) { console.error(error); return [] }
 
   let matches = rawMatches || []
 
   // Score by full name similarity and year proximity
   matches = matches.map(m => {
-    const yearDiff = (extractedYear && m.date_of_death)
-      ? Math.abs(new Date(m.date_of_death).getFullYear() - extractedYear) : 999
-    // Check if first name matches at all
-    const firstNameMatch = person.first_name
-      ? m.first_name.toLowerCase().includes(person.first_name.toLowerCase().substring(0, 3))
-      : true
-    return { ...m, yearDiff, firstNameMatch }
-  })
+  const yearDiff = (extractedYear && m.date_of_death)
+    ? Math.abs(new Date(m.date_of_death).getFullYear() - extractedYear) : 999
+  const firstNameMatch = person.first_name
+    ? m.first_name.toLowerCase().startsWith(person.first_name.toLowerCase().substring(0, 3))
+    : true
+  // Boost score for first name match — subtract 5 years from diff if name matches
+  const adjustedDiff = firstNameMatch ? yearDiff : yearDiff + 10
+  return { ...m, yearDiff, adjustedDiff, firstNameMatch }
+}).sort((a, b) => a.adjustedDiff - b.adjustedDiff).slice(0, 10)
   .sort((a, b) => {
     // Prioritize year match, then first name match
     if (a.yearDiff !== b.yearDiff) return a.yearDiff - b.yearDiff
@@ -417,7 +418,58 @@ setResults({ peopleWithMatches, stone_notes: extracted.stone_notes, stone_condit
     setVolunteerNotes(''); setSelectedFlags([]); setShowNotes(false)
     setMode('landing')
   }
+const saveNotesWithoutMatch = async () => {
+  try {
+    const byteString = atob(imageBase64)
+    const byteArray = new Uint8Array(byteString.length)
+    for (let i = 0; i < byteString.length; i++) byteArray[i] = byteString.charCodeAt(i)
+    const blob = new Blob([byteArray], { type: 'image/jpeg' })
+    const fileName = Date.now() + '_' + session.user.id + '.jpg'
 
+    const [position, uploadResult] = await Promise.all([
+      new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true, timeout: 5000, maximumAge: 30000
+      })),
+      supabase.storage.from('Stone_Images').upload(fileName, blob, { contentType: 'image/jpeg' })
+    ])
+    if (uploadResult.error) throw uploadResult.error
+
+    const lat = position.coords.latitude
+    const lng = position.coords.longitude
+    const accuracy = position.coords.accuracy
+    const { data: { publicUrl } } = supabase.storage.from('Stone_Images').getPublicUrl(fileName)
+
+    const { data: stoneData, error: stoneError } = await supabase.from('stones').insert({
+      cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+      volunteer_notes: volunteerNotes,
+      flags: selectedFlags,
+      stone_condition: results.stone_condition || 'fair',
+      condition_notes: results.stone_notes || '',
+      inscription_text: results.peopleWithMatches
+        .map(p => [p.person.first_name, p.person.middle_name, p.person.last_name,
+          p.person.date_of_birth_verbatim, p.person.date_of_death_verbatim,
+          ...(p.person.kinship_hints || [])].filter(Boolean).join(' ')).join(' | '),
+      field_status: selectedFlags.includes('Person not in database — needs new record')
+        ? 'needs_curation'
+        : selectedFlags.length > 0 ? 'needs_followup' : 'complete',
+      location: 'SRID=4326;POINT(' + lng + ' ' + lat + ')',
+      gps_accuracy_m: accuracy
+    }).select().single()
+    if (stoneError) throw stoneError
+
+    await supabase.from('stone_photos').insert({
+      stone_id: stoneData.stone_id, photo_url: publicUrl,
+      side: 'front', taken_by: session.user.id, is_primary: true
+    })
+
+    currentStoneRef.current = { stoneData, lat, lng, accuracy }
+    alert('Notes and photo saved!')
+    setShowNotes(false)
+  } catch (err) {
+    console.error(err)
+    alert('Error saving: ' + err.message)
+  }
+}
   const Header = () => (
     <div className="bg-gray-800 p-4 flex items-center justify-between">
       <h1 className="text-xl font-bold text-green-400 cursor-pointer" onClick={() => setMode('landing')}>
@@ -769,9 +821,14 @@ setResults({ peopleWithMatches, stone_notes: extracted.stone_notes, stone_condit
                       Save Notes
                     </button>
                   )}
-                  {!currentStoneRef.current && (
-                    <p className="text-yellow-400 text-xs mt-2">Confirm a match first to save notes to a stone.</p>
-                  )}
+                  {!currentStoneRef.current && (volunteerNotes || selectedFlags.length > 0) && (
+  <button
+    onClick={saveNotesWithoutMatch}
+    className="w-full bg-yellow-700 hover:bg-yellow-600 text-white font-bold py-2 rounded-lg text-sm mt-2"
+  >
+    Save Notes & Photo (no match)
+  </button>
+)}
                 </div>
               )}
             </div>
