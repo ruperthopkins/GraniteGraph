@@ -114,14 +114,16 @@ const fileInput = useRef(null)
 
   // Search by last name only first, then filter by first name loosely
   let query = supabase.from('v_deceased_search').select('*')
-    .ilike('last_name', '%' + searchTerm + '%')
+  .ilike('last_name', '%' + searchTerm + '%')
 
-  // Only add first name filter if we have it AND no middle name confusion
-  if (person.first_name && !person.middle_name) {
-    query = query.ilike('first_name', '%' + person.first_name + '%')
-  }
+// If we have a death year, filter to a 20-year window to avoid huge result sets
+if (extractedYear) {
+  query = query
+    .gte('date_of_death', (extractedYear - 10) + '-01-01')
+    .lte('date_of_death', (extractedYear + 10) + '-12-31')
+}
 
-  const { data: rawMatches, error } = await query.limit(50)
+const { data: rawMatches, error } = await query.limit(50)
   if (error) { console.error(error); return [] }
 
   let matches = rawMatches || []
