@@ -79,19 +79,28 @@ export default function Home({ session, onMap, onRecent }) {
   const resultsRef = useRef(null)
 
   const handlePhoto = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const b64 = reader.result.split(',')[1]
-      setImageBase64(b64)
-      imageBase64Ref.current = b64
-      setImage(reader.result)
-    }
-    reader.readAsDataURL(file)
-    currentStoneRef.current = null
-    setConfirmedPeople([])
+  const file = e.target.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onloadend = () => {
+    const b64 = reader.result.split(',')[1]
+    setImageBase64(b64)
+    imageBase64Ref.current = b64
+    setImage(reader.result)
   }
+  reader.readAsDataURL(file)
+  // Full reset for new photo session
+  currentStoneRef.current = null
+  resultsRef.current = null
+  setResults(null)
+  setConfirmedPeople([])
+  setKinshipSuggestions(null)
+  setVolunteerNotes('')
+  setSelectedFlags([])
+  setShowNotes(false)
+  setConfirming(null)
+  setGpsStatus(null)
+}
 
   const resizeImage = (base64) => new Promise((resolve) => {
     const img = new Image()
