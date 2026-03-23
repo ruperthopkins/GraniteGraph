@@ -62,6 +62,7 @@ export default function Home({ session, onMap, onRecent }) {
   const [selectedFlags, setSelectedFlags] = useState([])
   const [showNotes, setShowNotes] = useState(false)
   const [savingNotes, setSavingNotes] = useState(false)
+  const [gpsStatus, setGpsStatus] = useState(null)
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState(null)
@@ -269,12 +270,54 @@ export default function Home({ session, onMap, onRecent }) {
     const fileName = Date.now() + '_' + session.user.id + '.jpg'
     const currentResults = resultsRef.current || results
 
-    const [position, uploadResult] = await Promise.all([
-      new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, {
-        enableHighAccuracy: true, timeout: 5000, maximumAge: 30000
-      })),
-      supabase.storage.from('Stone_Images').upload(fileName, blob, { contentType: 'image/jpeg' })
-    ])
+    // Get best GPS fix within 20 seconds
+const getAccuratePosition = () => new Promise((resolve, reject) => {
+  let bestPosition = null
+  setGpsStatus('Acquiring GPS...')
+  
+  const watchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      bestPosition = pos
+      const acc = Math.round(pos.coords.accuracy)
+      setGpsStatus('GPS: ' + acc + 'm accuracy' + (acc <= 10 ? ' ✓' : ' (waiting for better fix...)'))
+      
+      if (pos.coords.accuracy <= 10) {
+        navigator.geolocation.clearWatch(watchId)
+        setGpsStatus(null)
+        resolve(pos)
+      }
+    },
+    (err) => {
+      if (bestPosition) {
+        setGpsStatus(null)
+        resolve(bestPosition)
+      } else {
+        reject(err)
+      }
+    },
+    { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
+  )
+
+  // After 20 seconds, use best position we have regardless of accuracy
+  setTimeout(() => {
+    navigator.geolocation.clearWatch(watchId)
+    setGpsStatus(null)
+    if (bestPosition) {
+      const acc = Math.round(bestPosition.coords.accuracy)
+      if (acc > 10) {
+        alert('Poor GPS fix (' + acc + 'm accuracy). Location saved but may be imprecise.')
+      }
+      resolve(bestPosition)
+    } else {
+      reject(new Error('Could not get GPS position'))
+    }
+  }, 20000)
+})
+
+const [position, uploadResult] = await Promise.all([
+  getAccuratePosition(),
+  supabase.storage.from('Stone_Images').upload(fileName, blob, { contentType: 'image/jpeg' })
+])
     if (uploadResult.error) throw uploadResult.error
 
     const lat = position.coords.latitude
@@ -437,7 +480,7 @@ export default function Home({ session, onMap, onRecent }) {
   }
 
   const clearPhotoResults = () => {
-    setResults(null); setImage(null); setImageBase64(null)
+    setResults(null); setImage(null); setImageBase64(null);setGpsStatus(null)
     imageBase64Ref.current = null; resultsRef.current = null
     setKinshipSuggestions(null); setConfirming(null)
     setConfirmedPeople([]); currentStoneRef.current = null
@@ -627,6 +670,11 @@ export default function Home({ session, onMap, onRecent }) {
 
         {confirmedPeople.length > 0 && (
           <div className="bg-gray-800 rounded-lg p-3 mb-4 border border-green-700">
+{gpsStatus && (
+  <div className="bg-gray-800 rounded-lg p-3 mb-4 border border-blue-700">
+    <p className="text-blue-400 text-sm">📍 {gpsStatus}</p>
+  </div>
+)}
             <p className="text-green-400 text-xs font-bold mb-1">Confirmed on this stone:</p>
             {confirmedPeople.map((p, i) => (
               <p key={i} className="text-white text-sm">✓ {p.full_name}</p>
