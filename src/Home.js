@@ -489,13 +489,18 @@ const [position, uploadResult] = await Promise.all([
   }
 
   const clearPhotoResults = () => {
-    setResults(null); setImage(null); setImageBase64(null);setGpsStatus(null)
-    imageBase64Ref.current = null; resultsRef.current = null
-    setKinshipSuggestions(null); setConfirming(null)
-    setConfirmedPeople([]); currentStoneRef.current = null
-    setVolunteerNotes(''); setSelectedFlags([]); setShowNotes(false)
-    setMode('landing')
-  }
+  setResults(null); setImage(null); setImageBase64(null)
+  imageBase64Ref.current = null; resultsRef.current = null
+  setKinshipSuggestions(null); setConfirming(null)
+  setConfirmedPeople([]); currentStoneRef.current = null
+  setVolunteerNotes(''); setSelectedFlags([]); setShowNotes(false)
+  setGpsStatus(null)
+  // Clear search state too
+  setSearchQuery(''); setSearchResults(null)
+  setSearchSelected(null); setSearchStoneData(null)
+  setPendingPhotoFor(null)
+  setMode('landing')
+}
 
   const Header = () => (
     <div className="bg-gray-800 p-4 flex items-center justify-between">
