@@ -648,10 +648,29 @@ const [position, uploadResult] = await Promise.all([
               {!searchSelected.is_photographed && (
                 <div className="bg-gray-800 border border-gray-600 rounded-lg p-4">
                   <p className="text-gray-300 text-sm mb-3">This stone has not been photographed yet.</p>
-                  <button onClick={() => { setPendingPhotoFor(searchSelected); setMode('photograph') }}
-                    className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-3 rounded-lg">
-                    📷 Photograph this stone now
-                  </button>
+                  <button onClick={() => {
+  setPendingPhotoFor(searchSelected)
+  // Full state reset before switching to photograph mode
+  currentStoneRef.current = null
+  resultsRef.current = null
+  setResults(null)
+  setConfirmedPeople([])
+  setKinshipSuggestions(null)
+  setVolunteerNotes('')
+  setSelectedFlags([])
+  setShowNotes(false)
+  setConfirming(null)
+  setGpsStatus(null)
+  setSearchResults(null)
+  setSearchSelected(null)
+  setSearchQuery('')
+  setMode('photograph')
+  // Trigger camera immediately
+  setTimeout(() => fileInput.current && fileInput.current.click(), 100)
+}}
+  className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-3 rounded-lg">
+  📷 Photograph this stone now
+</button>
                 </div>
               )}
             </div>
