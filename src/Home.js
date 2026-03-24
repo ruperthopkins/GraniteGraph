@@ -253,15 +253,18 @@ export default function Home({ session, onMap, onRecent }) {
 
       // Auto-launch search if first person has 0 matches
       const firstNoMatch = peopleWithMatches.find(p => p.matches.length === 0)
-      if (firstNoMatch) {
-        const p = firstNoMatch.person
-        const autoQuery = [p.first_name, p.last_name].filter(Boolean).join(' ')
-        if (autoQuery) {
-          setSearchQuery(autoQuery)
-          setMode('search')
-          handleVolunteerSearch(autoQuery)
-        }
-      }
+if (firstNoMatch) {
+  const p = firstNoMatch.person
+  const autoQuery = [p.first_name, p.last_name].filter(Boolean).join(' ')
+  if (autoQuery) {
+    setSearchQuery(autoQuery)
+    setSearchResults(null)
+    setSearchSelected(null)
+    setSearchStoneData(null)
+    setMode('search')
+    handleVolunteerSearch(autoQuery)
+  }
+}
     } catch (err) {
       console.error('Full error:', err)
       alert('Error: ' + err.message)
