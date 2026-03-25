@@ -63,6 +63,11 @@ export default function Home({ session, onMap, onRecent }) {
   const [showNotes, setShowNotes] = useState(false)
   const [savingNotes, setSavingNotes] = useState(false)
   const [gpsStatus, setGpsStatus] = useState(null)
+  const [manualLinkIndex, setManualLinkIndex] = useState(null)
+const [manualLinkQuery, setManualLinkQuery] = useState('')
+const [manualLinkResults, setManualLinkResults] = useState([])
+const [manualLinkSearching, setManualLinkSearching] = useState(false)
+// Search state
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState(null)
