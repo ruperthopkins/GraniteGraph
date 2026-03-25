@@ -169,7 +169,26 @@ const [manualLinkSearching, setManualLinkSearching] = useState(false)
     if (error) return []
     return data || []
   }
-
+const handleManualLinkSearch = async (query) => {
+  if (!query.trim()) return
+  setManualLinkSearching(true)
+  setManualLinkResults([])
+  const terms = query.trim().split(/[\s,]+/).filter(Boolean)
+  let dbQuery = supabase.from('v_deceased_search').select('*')
+  if (terms.length === 1) {
+    dbQuery = dbQuery.or('first_name.ilike.*' + terms[0] + '*,last_name.ilike.*' + terms[0] + '*,maiden_name.ilike.*' + terms[0] + '*')
+  } else {
+    const lastName = terms[terms.length - 1]
+    const firstTerms = terms.slice(0, -1)
+    dbQuery = dbQuery.ilike('last_name', '%' + lastName + '%')
+    firstTerms.forEach(term => {
+      dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%')
+    })
+  }
+  const { data, error } = await dbQuery.order('last_name').order('first_name').limit(20)
+  if (!error) setManualLinkResults(data || [])
+  setManualLinkSearching(false)
+}
   const handleVolunteerSearch = async (overrideQuery) => {
     const q = overrideQuery || searchQuery
     if (!q.trim()) return
@@ -813,10 +832,64 @@ const [position, uploadResult] = await Promise.all([
                   )}
                 </div>
                 {item.matches.length === 0 && (
-                  <div className="bg-gray-800 rounded p-3">
-                    <p className="text-gray-400 text-sm">No matches found. Use Search to find this person.</p>
-                  </div>
-                )}
+  <div className="bg-gray-800 rounded p-3 mb-2">
+    <p className="text-gray-400 text-sm mb-2">No matches found.</p>
+    {manualLinkIndex === index ? (
+      <div>
+        <input
+          type="text"
+          value={manualLinkQuery}
+          onChange={e => setManualLinkQuery(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleManualLinkSearch(manualLinkQuery)}
+          placeholder="Type name to search..."
+          className="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 text-white placeholder-gray-400 text-sm outline-none focus:ring-2 focus:ring-green-500 mb-2"
+          autoFocus
+        />
+        <button
+          onClick={() => handleManualLinkSearch(manualLinkQuery)}
+          disabled={manualLinkSearching}
+          className="w-full bg-blue-700 hover:bg-blue-600 text-white py-2 rounded text-sm font-bold mb-2"
+        >
+          {manualLinkSearching ? 'Searching...' : 'Search'}
+        </button>
+        {manualLinkResults.map(match => (
+          <div key={match.deceased_id} className="bg-gray-700 rounded p-3 mb-2">
+            <p className="font-bold text-white">{match.full_name}</p>
+            <p className="text-gray-300 text-sm">
+              {match.date_of_death_verbatim && 'd. ' + match.date_of_death_verbatim}
+              {match.maiden_name && ' | nee ' + match.maiden_name}
+            </p>
+            <button
+              onClick={() => {
+                confirmMatch(item.person, match)
+                setManualLinkIndex(null)
+                setManualLinkQuery('')
+                setManualLinkResults([])
+              }}
+              disabled={confirming === match.deceased_id}
+              className="mt-2 w-full bg-green-700 hover:bg-green-600 text-white py-2 rounded text-sm font-bold"
+            >
+              {confirming === match.deceased_id ? 'Saving...' : 'Link to this person'}
+            </button>
+          </div>
+        ))}
+        <button
+          onClick={() => { setManualLinkIndex(null); setManualLinkQuery(''); setManualLinkResults([]) }}
+          className="w-full bg-gray-700 hover:bg-gray-600 text-gray-300 py-2 rounded text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    ) : (
+      <button
+        onClick={() => { setManualLinkIndex(index); setManualLinkQuery(''); setManualLinkResults([]) }}
+        className="w-full bg-blue-700 hover:bg-blue-600 text-white py-2 rounded text-sm font-bold"
+      >
+        🔗 Manually link to a person
+      </button>
+    )}
+  </div>
+)}
                 {item.matches.map(match => (
                   <div key={match.deceased_id} className={'p-3 rounded-lg mb-2 ' + (match.is_photographed ? 'bg-gray-700 border border-yellow-600' : 'bg-gray-800')}>
                     <p className={'font-bold ' + (match.is_photographed ? 'text-yellow-400' : 'text-white')}>
@@ -836,6 +909,12 @@ const [position, uploadResult] = await Promise.all([
                       )}>
                       {confirming === match.deceased_id ? 'Saving...' : match.is_photographed ? 'Confirm Again' : 'Confirm Match'}
                     </button>
+                    <button
+                      onClick={() => { setManualLinkIndex(index); setManualLinkQuery(''); setManualLinkResults([]) }}
+                      className="w-full bg-gray-700 hover:bg-gray-600 text-gray-300 py-2 rounded text-sm mt-1"
+                      >               
+                      🔗 Link to a different person
+                     </button>
                   </div>
                 ))}
               </div>
