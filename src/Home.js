@@ -697,12 +697,19 @@ const [position, uploadResult] = await Promise.all([
           <button onClick={() => setMode('landing')} className="text-gray-300 text-sm hover:text-white mb-4">← Back</button>
         )}
 
-        {pendingPhotoFor && !results && (
-          <div className="bg-gray-700 rounded-lg p-3 mb-4">
-            <p className="text-green-400 text-sm font-bold">Photographing for: {pendingPhotoFor.full_name}</p>
-            {pendingPhotoFor.date_of_death_verbatim && <p className="text-gray-300 text-xs">d. {pendingPhotoFor.date_of_death_verbatim}</p>}
-          </div>
-        )}
+        {pendingPhotoFor && !image && (
+  <div className="bg-gray-700 rounded-lg p-4 mb-4">
+    <p className="text-green-400 font-bold mb-1">📋 Ready to photograph:</p>
+    <p className="text-white font-bold text-lg">{pendingPhotoFor.full_name}</p>
+    {pendingPhotoFor.date_of_death_verbatim && <p className="text-gray-300 text-sm">d. {pendingPhotoFor.date_of_death_verbatim}</p>}
+    <button
+      onClick={() => fileInput.current.click()}
+      className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-4 rounded-lg text-lg mt-3"
+    >
+      📷 Take Photo Now
+    </button>
+  </div>
+)}
 
         {confirmedPeople.length > 0 && (
           <div className="bg-gray-800 rounded-lg p-3 mb-4 border border-green-700">
