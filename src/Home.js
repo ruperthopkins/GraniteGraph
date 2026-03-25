@@ -551,10 +551,16 @@ const [position, uploadResult] = await Promise.all([
           <p className="text-gray-300 text-center mb-8 mt-4">What would you like to do?</p>
           <input type="file" accept="image/*" capture="environment" ref={fileInput}
             onChange={(e) => { handlePhoto(e); setMode('photograph') }} className="hidden" />
-          <button onClick={() => fileInput.current.click()}
-            className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-8 rounded-lg text-xl mb-4">
-            📷 Photograph Stone
-          </button>
+          <label className="w-full bg-green-700 text-white font-bold py-4 rounded-lg text-lg mt-3 flex items-center justify-center cursor-pointer">
+  📷 Take Photo Now
+  <input
+    type="file"
+    accept="image/*"
+    capture="environment"
+    onChange={(e) => { handlePhoto(e) }}
+    className="hidden"
+  />
+</label>
           <button onClick={() => setMode('search')}
             className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-8 rounded-lg text-xl">
             🔍 Search Records
