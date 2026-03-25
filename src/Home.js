@@ -551,16 +551,24 @@ const [position, uploadResult] = await Promise.all([
           <p className="text-gray-300 text-center mb-8 mt-4">What would you like to do?</p>
           <input type="file" accept="image/*" capture="environment" ref={fileInput}
             onChange={(e) => { handlePhoto(e); setMode('photograph') }} className="hidden" />
-          <label className="w-full bg-green-700 text-white font-bold py-4 rounded-lg text-lg mt-3 flex items-center justify-center cursor-pointer">
-  📷 Take Photo Now
-  <input
-    type="file"
-    accept="image/*"
-    capture="environment"
-    onChange={(e) => { handlePhoto(e) }}
-    className="hidden"
-  />
-</label>
+         <input
+  type="file"
+  accept="image/*"
+  capture="environment"
+  onChange={(e) => { handlePhoto(e) }}
+  style={{
+    width: '100%',
+    padding: '16px',
+    backgroundColor: '#15803d',
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: '1.125rem',
+    borderRadius: '8px',
+    marginTop: '12px',
+    cursor: 'pointer',
+    border: 'none'
+  }}
+/>
           <button onClick={() => setMode('search')}
             className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-8 rounded-lg text-xl">
             🔍 Search Records
@@ -684,33 +692,48 @@ const [position, uploadResult] = await Promise.all([
                 </div>
               )}
               {!searchSelected.is_photographed && (
-                <div className="bg-gray-800 border border-gray-600 rounded-lg p-4">
-                  <p className="text-gray-300 text-sm mb-3">This stone has not been photographed yet.</p>
-                  <button onClick={() => {
-  setPendingPhotoFor(searchSelected)
-  // Full state reset before switching to photograph mode
-  currentStoneRef.current = null
-  resultsRef.current = null
-  setResults(null)
-  setConfirmedPeople([])
-  setKinshipSuggestions(null)
-  setVolunteerNotes('')
-  setSelectedFlags([])
-  setShowNotes(false)
-  setConfirming(null)
-  setGpsStatus(null)
-  setSearchResults(null)
-  setSearchSelected(null)
-  setSearchQuery('')
-  setMode('photograph')
-  // Trigger camera immediately
-  setTimeout(() => fileInput.current && fileInput.current.click(), 100)
-}}
-  className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-3 rounded-lg">
-  📷 Photograph this stone now
-</button>
-                </div>
-              )}
+  <div className="bg-gray-800 border border-gray-600 rounded-lg p-4">
+    <p className="text-gray-300 text-sm mb-3">This stone has not been photographed yet.</p>
+    <input
+      type="file"
+      accept="image/*"
+      capture="environment"
+      onChange={(e) => {
+        // Reset all state
+        currentStoneRef.current = null
+        resultsRef.current = null
+        setResults(null)
+        setConfirmedPeople([])
+        setKinshipSuggestions(null)
+        setVolunteerNotes('')
+        setSelectedFlags([])
+        setShowNotes(false)
+        setConfirming(null)
+        setGpsStatus(null)
+        setSearchResults(null)
+        setSearchSelected(null)
+        setSearchQuery('')
+        setSearchStoneData(null)
+        setPendingPhotoFor(searchSelected)
+        handlePhoto(e)
+        setMode('photograph')
+      }}
+      style={{
+        display: 'block',
+        width: '100%',
+        padding: '14px',
+        backgroundColor: '#15803d',
+        color: 'white',
+        fontWeight: 'bold',
+        fontSize: '1rem',
+        borderRadius: '8px',
+        cursor: 'pointer',
+        border: 'none',
+        textAlign: 'center'
+      }}
+    />
+  </div>
+)}
             </div>
           )}
         </div>
@@ -732,12 +755,25 @@ const [position, uploadResult] = await Promise.all([
     <p className="text-green-400 font-bold mb-1">📋 Ready to photograph:</p>
     <p className="text-white font-bold text-lg">{pendingPhotoFor.full_name}</p>
     {pendingPhotoFor.date_of_death_verbatim && <p className="text-gray-300 text-sm">d. {pendingPhotoFor.date_of_death_verbatim}</p>}
-    <button
-      onClick={() => fileInput.current.click()}
-      className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-4 rounded-lg text-lg mt-3"
-    >
-      📷 Take Photo Now
-    </button>
+    <input
+      type="file"
+      accept="image/*"
+      capture="environment"
+      onChange={(e) => { handlePhoto(e) }}
+      style={{
+        display: 'block',
+        width: '100%',
+        padding: '16px',
+        backgroundColor: '#15803d',
+        color: 'white',
+        fontWeight: 'bold',
+        fontSize: '1.125rem',
+        borderRadius: '8px',
+        marginTop: '12px',
+        cursor: 'pointer',
+        border: 'none'
+      }}
+    />
   </div>
 )}
 
