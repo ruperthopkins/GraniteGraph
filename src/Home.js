@@ -691,47 +691,49 @@ const [position, uploadResult] = await Promise.all([
                   </div>
                 </div>
               )}
-              {!searchSelected.is_photographed && (
+             {!searchSelected.is_photographed && (
   <div className="bg-gray-800 border border-gray-600 rounded-lg p-4">
     <p className="text-gray-300 text-sm mb-3">This stone has not been photographed yet.</p>
-    <input
-      type="file"
-      accept="image/*"
-      capture="environment"
-      onChange={(e) => {
-        // Reset all state
-        currentStoneRef.current = null
-        resultsRef.current = null
-        setResults(null)
-        setConfirmedPeople([])
-        setKinshipSuggestions(null)
-        setVolunteerNotes('')
-        setSelectedFlags([])
-        setShowNotes(false)
-        setConfirming(null)
-        setGpsStatus(null)
-        setSearchResults(null)
-        setSearchSelected(null)
-        setSearchQuery('')
-        setSearchStoneData(null)
-        setPendingPhotoFor(searchSelected)
-        handlePhoto(e)
-        setMode('photograph')
-      }}
-      style={{
-        display: 'block',
-        width: '100%',
-        padding: '14px',
-        backgroundColor: '#15803d',
-        color: 'white',
-        fontWeight: 'bold',
-        fontSize: '1rem',
-        borderRadius: '8px',
-        cursor: 'pointer',
-        border: 'none',
-        textAlign: 'center'
-      }}
-    />
+    <label style={{
+      display: 'block',
+      width: '100%',
+      padding: '14px',
+      backgroundColor: '#15803d',
+      color: 'white',
+      fontWeight: 'bold',
+      fontSize: '1rem',
+      borderRadius: '8px',
+      cursor: 'pointer',
+      textAlign: 'center',
+      boxSizing: 'border-box'
+    }}>
+      📷 Photograph this stone now
+      <input
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => {
+          currentStoneRef.current = null
+          resultsRef.current = null
+          setResults(null)
+          setConfirmedPeople([])
+          setKinshipSuggestions(null)
+          setVolunteerNotes('')
+          setSelectedFlags([])
+          setShowNotes(false)
+          setConfirming(null)
+          setGpsStatus(null)
+          setSearchResults(null)
+          setSearchSelected(null)
+          setSearchQuery('')
+          setSearchStoneData(null)
+          setPendingPhotoFor(searchSelected)
+          handlePhoto(e)
+          setMode('photograph')
+        }}
+        style={{ display: 'none' }}
+      />
+    </label>
   </div>
 )}
             </div>
