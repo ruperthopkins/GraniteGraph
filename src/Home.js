@@ -885,8 +885,12 @@ supabase.from('kinship').insert({
               <div key={sIndex} className="bg-gray-800 rounded-lg p-4 mb-4 border border-gray-600">
                 <p className="text-white font-bold">{suggestion.subjectName}</p>
                 <p className="text-yellow-400 text-sm mb-1">
-                  is {suggestion.type} of {suggestion.rawName ? '"' + suggestion.rawName + '"' : 'person on same stone'}
-                </p>
+  {suggestion.type === 'child_of' ? 'is child of' :
+   suggestion.type === 'parent_of' ? 'is parent of' :
+   suggestion.type === 'spouse' ? 'is spouse of' :
+   suggestion.type === 'sibling' ? 'is sibling of' :
+   'is related to'} {suggestion.rawName ? '"' + suggestion.rawName + '"' : 'person on same stone'}
+</p>
                 <p className="text-gray-400 text-xs mb-3">from: "{suggestion.hint}"</p>
                 <p className="text-gray-300 text-sm mb-2">Confirm relationship with:</p>
                 {suggestion.candidates.map(candidate => (
