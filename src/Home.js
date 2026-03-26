@@ -20,34 +20,64 @@ const stoneIcon = new L.Icon({
 const parseKinshipHints = (hints) => {
   if (!hints || hints.length === 0) return []
   const relationships = []
-  const patterns = [
-    { regex: /(?:wife|spouse|consort)\s+of\s+([A-Z][a-z]+(?:\s+[A-Z]\.?\s*)?(?:[A-Z][a-z]+))/i, type: 'spouse' },
-    { regex: /(?:husband)\s+of\s+([A-Z][a-z]+(?:\s+[A-Z]\.?\s*)?(?:[A-Z][a-z]+))/i, type: 'spouse' },
-    { regex: /(?:his|her)\s+wife/i, type: 'spouse_implicit' },
-    { regex: /(?:son|daughter|child)\s+of\s+(.+)/i, type: 'child' },
-    { regex: /(?:father|mother|parent)\s+of\s+(.+)/i, type: 'parent' },
-    { regex: /(?:brother|sister|sibling)\s+of\s+(.+)/i, type: 'sibling' },
-  ]
+
   hints.forEach(hint => {
-    patterns.forEach(({ regex, type }) => {
-      const match = hint.match(regex)
-      if (match) {
-        if (type === 'spouse_implicit') {
-          relationships.push({ type: 'spouse', rawName: null, hint, implicit: true })
-        } else if (match[1]) {
-          match[1].split(/\s*[&,]\s*/).forEach(rawName => {
-            const cleaned = rawName.trim().replace(/\.$/, '')
-            if (cleaned.length > 2) relationships.push({ type, rawName: cleaned, hint })
-          })
-        }
-      }
-    })
+    const h = hint.trim()
+
+    // "His Wife" / "Her Wife" — implicit spouse of first person on stone
+    if (/\b(his|her)\s+wife\b/i.test(h)) {
+      relationships.push({ type: 'spouse', rawNames: [], hint, implicit: true })
+      return
+    }
+
+    // "Wife of X" / "Husband of X" / "Spouse of X" / "Consort of X"
+    const spouseMatch = h.match(/\b(?:wife|husband|spouse|consort)\s+of\s+(.+)/i)
+    if (spouseMatch) {
+      const rawName = spouseMatch[1].trim().replace(/\.$/, '')
+      relationships.push({ type: 'spouse', rawNames: [rawName], hint, implicit: false })
+      return
+    }
+
+    // "Son of X and Y" / "Daughter of X and Y" / "Child of X and Y"
+    // Subject is CHILD, named people are PARENTS
+    const childMatch = h.match(/\b(?:son|daughter|child)\s+of\s+(.+)/i)
+    if (childMatch) {
+      const rest = childMatch[1].trim().replace(/\.$/, '')
+      // Split on " and " or "&" to get multiple parents
+      const parentNames = rest.split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
+      relationships.push({ type: 'child_of', rawNames: parentNames, hint, implicit: false })
+      return
+    }
+
+    // "Their Son" / "Their Daughter" — child of all previously named people on stone
+    if (/\btheir\s+(?:son|daughter|child)\b/i.test(h)) {
+      relationships.push({ type: 'child_of', rawNames: [], hint, implicit: true, theirChild: true })
+      return
+    }
+
+    // "Father of X" / "Mother of X" / "Parent of X"
+    // Subject is PARENT, named people are CHILDREN
+    const parentMatch = h.match(/\b(?:father|mother|parent)\s+of\s+(.+)/i)
+    if (parentMatch) {
+      const rest = parentMatch[1].trim().replace(/\.$/, '')
+      const childNames = rest.split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
+      relationships.push({ type: 'parent_of', rawNames: childNames, hint, implicit: false })
+      return
+    }
+
+    // "Brother of X" / "Sister of X" / "Sibling of X"
+    const siblingMatch = h.match(/\b(?:brother|sister|sibling)\s+of\s+(.+)/i)
+    if (siblingMatch) {
+      const rest = siblingMatch[1].trim().replace(/\.$/, '')
+      const siblingNames = rest.split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
+      relationships.push({ type: 'sibling', rawNames: siblingNames, hint, implicit: false })
+    }
   })
+
   return relationships
 }
 
-const extractLastName = (rawName) => { const w = rawName.trim().split(/\s+/); return w[w.length - 1] }
-const extractFirstName = (rawName) => rawName.trim().split(/\s+/)[0]
+
 
 export default function Home({ session, onMap, onRecent }) {
   const [mode, setMode] = useState('landing')
@@ -161,14 +191,83 @@ const [manualLinkSearching, setManualLinkSearching] = useState(false)
   }
 
   const searchForRelative = async (rawName) => {
-    if (!rawName) return []
-    const { data, error } = await supabase.from('v_deceased_search').select('*')
-      .ilike('last_name', '%' + extractLastName(rawName) + '%')
-      .ilike('first_name', '%' + extractFirstName(rawName) + '%')
-      .limit(5)
-    if (error) return []
-    return data || []
+  if (!rawName) return []
+  const words = rawName.trim().split(/\s+/)
+  const firstName = words[0]
+  const lastName = words[words.length - 1]
+  const { data, error } = await supabase.from('v_deceased_search').select('*')
+    .ilike('last_name', '%' + lastName + '%')
+    .ilike('first_name', '%' + firstName + '%')
+    .limit(8)
+  if (error) return []
+  return data || []
+}
+
+const buildKinshipSuggestions = async (person, matchedRecord, allConfirmedPeople) => {
+  const relationships = parseKinshipHints(person.kinship_hints || [])
+  const suggestions = []
+
+  for (const rel of relationships) {
+    if (rel.implicit && !rel.theirChild) {
+      // "His Wife" — spouse of first confirmed person on stone
+      if (rel.type === 'spouse' && allConfirmedPeople.length > 0) {
+        const other = allConfirmedPeople[allConfirmedPeople.length - 1]
+        suggestions.push({
+          subjectId: matchedRecord.deceased_id,
+          subjectName: matchedRecord.full_name,
+          type: 'spouse',
+          hint: rel.hint,
+          candidates: [other],
+          implicit: true
+        })
+      }
+    } else if (rel.theirChild) {
+      // "Their Son/Daughter" — child of all previously confirmed people
+      if (allConfirmedPeople.length > 0) {
+        for (const parent of allConfirmedPeople) {
+          suggestions.push({
+            subjectId: matchedRecord.deceased_id,
+            subjectName: matchedRecord.full_name,
+            type: 'child_of',
+            hint: rel.hint,
+            candidates: [parent],
+            implicit: false
+          })
+        }
+      }
+    } else {
+      // Explicit named relationships
+      for (const rawName of rel.rawNames) {
+        const candidates = await searchForRelative(rawName)
+        if (candidates.length > 0) {
+          suggestions.push({
+            subjectId: matchedRecord.deceased_id,
+            subjectName: matchedRecord.full_name,
+            type: rel.type,
+            hint: rel.hint,
+            rawName,
+            candidates
+          })
+        }
+      }
+    }
   }
+
+  // If multiple people on stone and no explicit kinship — suggest spouse
+  if (suggestions.length === 0 && allConfirmedPeople.length > 0) {
+    const other = allConfirmedPeople[allConfirmedPeople.length - 1]
+    suggestions.push({
+      subjectId: matchedRecord.deceased_id,
+      subjectName: matchedRecord.full_name,
+      type: 'spouse',
+      hint: 'Same stone',
+      candidates: [other],
+      implicit: true
+    })
+  }
+
+  return suggestions
+}
 const handleManualLinkSearch = async (query) => {
   if (!query.trim()) return
   setManualLinkSearching(true)
@@ -411,49 +510,17 @@ const [position, uploadResult] = await Promise.all([
           : Promise.resolve()
       ])
 
-      const newConfirmedPeople = [...confirmedPeople, { ...matchedRecord, person }]
+     const newConfirmedPeople = [...confirmedPeople, { ...matchedRecord, person }]
       setConfirmedPeople(newConfirmedPeople)
 
-      const relationships = parseKinshipHints(person.kinship_hints)
-      const allSuggestions = []
-
-      for (const rel of relationships) {
-        if (rel.implicit && newConfirmedPeople.length > 1) {
-          const otherPeople = newConfirmedPeople.filter(p => p.deceased_id !== matchedRecord.deceased_id)
-          if (otherPeople.length > 0) {
-            const previousPerson = otherPeople[otherPeople.length - 1]
-            allSuggestions.push({
-              type: 'spouse', rawName: previousPerson.full_name, hint: rel.hint,
-              implicit: true, candidates: [previousPerson],
-              subjectId: matchedRecord.deceased_id, subjectName: matchedRecord.full_name
-            })
-          }
-        } else if (rel.rawName) {
-          const candidates = await searchForRelative(rel.rawName)
-          if (candidates.length > 0) {
-            allSuggestions.push({ ...rel, candidates, subjectId: matchedRecord.deceased_id, subjectName: matchedRecord.full_name })
-          }
-        }
-      }
-
-      if (allSuggestions.length === 0 && newConfirmedPeople.length > 1) {
-        const otherPeople = newConfirmedPeople.filter(p => p.deceased_id !== matchedRecord.deceased_id)
-        if (otherPeople.length > 0) {
-          const previousPerson = otherPeople[otherPeople.length - 1]
-          allSuggestions.push({
-            type: 'spouse', rawName: previousPerson.full_name, hint: 'Same stone',
-            implicit: true, candidates: [previousPerson],
-            subjectId: matchedRecord.deceased_id, subjectName: matchedRecord.full_name
-          })
-        }
-      }
+      const allSuggestions = await buildKinshipSuggestions(person, matchedRecord, confirmedPeople)
 
       if (allSuggestions.length > 0) {
         setKinshipSuggestions(allSuggestions)
       } else {
         alert('Match confirmed! ' + matchedRecord.full_name + '\nGPS: ' + lat.toFixed(6) + ', ' + lng.toFixed(6))
       }
-      setConfirming(null)
+          setConfirming(null)
     } catch (err) {
       setConfirming(null)
       console.error(err)
@@ -462,17 +529,22 @@ const [position, uploadResult] = await Promise.all([
   }
 
   const confirmKinship = async (suggestion, candidate) => {
-    const inverseType = { spouse: 'spouse', child: 'parent', parent: 'child', sibling: 'sibling' }[suggestion.type] || 'unknown'
+    const inverseType = { 
+  spouse: 'spouse', 
+  child_of: 'parent_of', 
+  parent_of: 'child_of', 
+  sibling: 'sibling' 
+}[suggestion.type] || 'unknown'
     try {
       await Promise.all([
-        supabase.from('kinship').insert({
-          primary_deceased_id: suggestion.subjectId, relative_deceased_id: candidate.deceased_id,
-          relationship_type: suggestion.type, source: 'stone_inscription', confidence: 0.9, notes: suggestion.hint
-        }),
-        supabase.from('kinship').insert({
-          primary_deceased_id: candidate.deceased_id, relative_deceased_id: suggestion.subjectId,
-          relationship_type: inverseType, source: 'stone_inscription', confidence: 0.9, notes: suggestion.hint
-        }),
+       supabase.from('kinship').insert({
+  primary_deceased_id: suggestion.subjectId, relative_deceased_id: candidate.deceased_id,
+  relationship_type: suggestion.type, source: 'stone_inscription', confidence: 'probable', notes: suggestion.hint
+}),
+supabase.from('kinship').insert({
+  primary_deceased_id: candidate.deceased_id, relative_deceased_id: suggestion.subjectId,
+  relationship_type: inverseType, source: 'stone_inscription', confidence: 'probable', notes: suggestion.hint
+}),
         supabase.from('activity_log').insert({
           user_id: session.user.id, action: 'kinship_confirmed', entity_type: 'kinship',
           entity_id: suggestion.subjectId, cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
