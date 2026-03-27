@@ -17,88 +17,102 @@ const stoneIcon = new L.Icon({
   iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
 })
 
+// ── KINSHIP PARSER ───────────────────────────────────────────
 const parseKinshipHints = (hints) => {
   if (!hints || hints.length === 0) return []
   const relationships = []
-
   hints.forEach(hint => {
     const h = hint.trim()
-
-    // "His Wife" / "Her Wife" — implicit spouse of first person on stone
     if (/\b(his|her)\s+wife\b/i.test(h)) {
       relationships.push({ type: 'spouse', rawNames: [], hint, implicit: true })
       return
     }
-
-    // "Wife of X" / "Husband of X" / "Spouse of X" / "Consort of X"
     const spouseMatch = h.match(/\b(?:wife|husband|spouse|consort)\s+of\s+(.+)/i)
     if (spouseMatch) {
-      const rawName = spouseMatch[1].trim().replace(/\.$/, '')
-      relationships.push({ type: 'spouse', rawNames: [rawName], hint, implicit: false })
+      relationships.push({ type: 'spouse', rawNames: [spouseMatch[1].trim().replace(/\.$/, '')], hint, implicit: false })
       return
     }
-
-    // "Son of X and Y" / "Daughter of X and Y" / "Child of X and Y"
-    // Subject is CHILD, named people are PARENTS
     const childMatch = h.match(/\b(?:son|daughter|child)\s+of\s+(.+)/i)
     if (childMatch) {
-      const rest = childMatch[1].trim().replace(/\.$/, '')
-      // Split on " and " or "&" to get multiple parents
-      const parentNames = rest.split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
+      const parentNames = childMatch[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
       relationships.push({ type: 'child_of', rawNames: parentNames, hint, implicit: false })
       return
     }
-
-    // "Their Son" / "Their Daughter" — child of all previously named people on stone
     if (/\btheir\s+(?:son|daughter|child)\b/i.test(h)) {
       relationships.push({ type: 'child_of', rawNames: [], hint, implicit: true, theirChild: true })
       return
     }
-
-    // "Father of X" / "Mother of X" / "Parent of X"
-    // Subject is PARENT, named people are CHILDREN
     const parentMatch = h.match(/\b(?:father|mother|parent)\s+of\s+(.+)/i)
     if (parentMatch) {
-      const rest = parentMatch[1].trim().replace(/\.$/, '')
-      const childNames = rest.split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
+      const childNames = parentMatch[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
       relationships.push({ type: 'parent_of', rawNames: childNames, hint, implicit: false })
       return
     }
-
-    // "Brother of X" / "Sister of X" / "Sibling of X"
     const siblingMatch = h.match(/\b(?:brother|sister|sibling)\s+of\s+(.+)/i)
     if (siblingMatch) {
-      const rest = siblingMatch[1].trim().replace(/\.$/, '')
-      const siblingNames = rest.split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
+      const siblingNames = siblingMatch[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
       relationships.push({ type: 'sibling', rawNames: siblingNames, hint, implicit: false })
     }
   })
-
   return relationships
 }
 
+const REL_LABEL = {
+  spouse: 'Spouse of',
+  child_of: 'Child of',
+  parent_of: 'Parent of',
+  sibling: 'Sibling of',
+}
 
+const INVERSE_REL = {
+  spouse: 'spouse',
+  child_of: 'parent_of',
+  parent_of: 'child_of',
+  sibling: 'sibling',
+}
 
+// ── MAIN COMPONENT ───────────────────────────────────────────
 export default function Home({ session, onMap, onRecent }) {
-  const [mode, setMode] = useState('landing')
+  // Core mode
+  const [mode, setMode] = useState('landing') // landing | photograph | search
+
+  // Photograph phases
+  const [photoPhase, setPhotoPhase] = useState('capture') // capture | matrix | match | done
+
+  // Image state
   const [image, setImage] = useState(null)
-  const [imageBase64, setImageBase64] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [results, setResults] = useState(null)
-  const [kinshipSuggestions, setKinshipSuggestions] = useState(null)
-  const [confirming, setConfirming] = useState(null)
-  const [confirmedPeople, setConfirmedPeople] = useState([])
+  const imageBase64Ref = useRef(null)
+
+  // Stone matrix — the heart of the new workflow
+  const [stoneMatrix, setStoneMatrix] = useState(null)
+  // stoneMatrix = {
+  //   stone_condition, stone_notes,
+  //   people: [{
+  //     index, geminiData, correctedName,
+  //     role: 'occupant'|'mentioned',
+  //     relationships: [{type, rawNames, hint, implicit}],
+  //     confirmedRelationships: [{type, subjectIndex, objectIndex, objectName}],
+  //     matchedRecord: null | deceased record,
+  //     matchStatus: 'pending'|'matched'|'skipped'|'new'
+  //   }]
+  // }
+
+  // Match phase state
+  const [matchingIndex, setMatchingIndex] = useState(0)
+  const [matchSearchQuery, setMatchSearchQuery] = useState('')
+  const [matchSearchResults, setMatchSearchResults] = useState([])
+  const [matchSearching, setMatchSearching] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  // Field notes
   const [volunteerNotes, setVolunteerNotes] = useState('')
   const [selectedFlags, setSelectedFlags] = useState([])
   const [showNotes, setShowNotes] = useState(false)
   const [savingNotes, setSavingNotes] = useState(false)
   const [gpsStatus, setGpsStatus] = useState(null)
-  const [manualLinkIndex, setManualLinkIndex] = useState(null)
-const [manualLinkQuery, setManualLinkQuery] = useState('')
-const [manualLinkResults, setManualLinkResults] = useState([])
-const [manualLinkSearching, setManualLinkSearching] = useState(false)
-// Search state
-  // Search state
+
+  // Search mode state
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState(null)
   const [searchSelected, setSearchSelected] = useState(null)
@@ -107,35 +121,28 @@ const [manualLinkSearching, setManualLinkSearching] = useState(false)
   const [visitorLocation, setVisitorLocation] = useState(null)
   const [locating, setLocating] = useState(false)
   const [pendingPhotoFor, setPendingPhotoFor] = useState(null)
+
   const fileInput = useRef(null)
   const currentStoneRef = useRef(null)
-  // Keep imageBase64 available even when switching to search mode
-  const imageBase64Ref = useRef(null)
-  const resultsRef = useRef(null)
 
+  // ── IMAGE HANDLING ───────────────────────────────────────
   const handlePhoto = (e) => {
-  const file = e.target.files[0]
-  if (!file) return
-  const reader = new FileReader()
-  reader.onloadend = () => {
-    const b64 = reader.result.split(',')[1]
-    setImageBase64(b64)
-    imageBase64Ref.current = b64
-    setImage(reader.result)
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      const b64 = reader.result.split(',')[1]
+      imageBase64Ref.current = b64
+      setImage(reader.result)
+    }
+    reader.readAsDataURL(file)
+    currentStoneRef.current = null
+    setStoneMatrix(null)
+    setPhotoPhase('capture')
+    setVolunteerNotes('')
+    setSelectedFlags([])
+    setShowNotes(false)
   }
-  reader.readAsDataURL(file)
-  // Full reset for new photo session
-  currentStoneRef.current = null
-  resultsRef.current = null
-  setResults(null)
-  setConfirmedPeople([])
-  setKinshipSuggestions(null)
-  setVolunteerNotes('')
-  setSelectedFlags([])
-  setShowNotes(false)
-  setConfirming(null)
-  setGpsStatus(null)
-}
 
   const resizeImage = (base64) => new Promise((resolve) => {
     const img = new Image()
@@ -152,150 +159,111 @@ const [manualLinkSearching, setManualLinkSearching] = useState(false)
     img.src = 'data:image/jpeg;base64,' + base64
   })
 
-  const searchForPerson = async (person) => {
-    let searchTerm = person.last_name || ''
-    if (!searchTerm && person.kinship_hints && person.kinship_hints.length > 0) {
-      const words = person.kinship_hints.join(' ').split(' ')
-      searchTerm = words[words.length - 1]
+  // ── GEMINI ANALYSIS ──────────────────────────────────────
+  const analyzePhoto = async () => {
+    if (!imageBase64Ref.current) return
+    setLoading(true)
+    try {
+      const resizedBase64 = await resizeImage(imageBase64Ref.current)
+      const geminiResponse = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: resizedBase64 })
+      })
+      const geminiData = await geminiResponse.json()
+      if (!geminiData.candidates || geminiData.candidates.length === 0) {
+        throw new Error('Gemini error: ' + (geminiData.error?.message || JSON.stringify(geminiData)))
+      }
+      const extracted = JSON.parse(geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim())
+
+      // Build initial stone matrix from Gemini output
+      const people = (extracted.people || []).map((p, index) => {
+        const fullName = [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(' ')
+        return {
+          index,
+          geminiData: p,
+          correctedName: fullName,
+          role: 'occupant', // default — volunteer can change
+          relationships: parseKinshipHints(p.kinship_hints || []),
+          confirmedRelationships: [],
+          matchedRecord: null,
+          matchStatus: 'pending'
+        }
+      })
+
+      setStoneMatrix({
+        stone_condition: extracted.stone_condition || 'fair',
+        stone_notes: extracted.stone_notes || '',
+        people
+      })
+      setPhotoPhase('matrix')
+    } catch (err) {
+      console.error(err)
+      alert('Error analyzing photo: ' + err.message)
     }
-    if (!searchTerm) return []
-    const deathYearMatch = (person.date_of_death_verbatim || '').match(/\d{4}/)
-    const extractedYear = deathYearMatch ? parseInt(deathYearMatch[0]) : null
-
-    let query = supabase.from('v_deceased_search').select('*')
-      .ilike('last_name', '%' + searchTerm + '%')
-
-    // Filter to 15-year window if we have a death year
-    if (extractedYear) {
-      query = query
-        .gte('date_of_death', (extractedYear - 15) + '-01-01')
-        .lte('date_of_death', (extractedYear + 15) + '-12-31')
-    }
-
-    const { data: rawMatches, error } = await query.limit(50)
-    if (error) { console.error(error); return [] }
-    let matches = rawMatches || []
-
-    if (extractedYear && matches.length > 0) {
-      matches = matches.map(m => {
-        const yearDiff = m.date_of_death
-          ? Math.abs(new Date(m.date_of_death).getFullYear() - extractedYear) : 999
-        const firstNameMatch = person.first_name
-          ? m.first_name.toLowerCase().startsWith(person.first_name.toLowerCase().substring(0, 3))
-          : true
-        const adjustedDiff = firstNameMatch ? yearDiff : yearDiff + 10
-        return { ...m, yearDiff, adjustedDiff }
-      }).sort((a, b) => a.adjustedDiff - b.adjustedDiff).slice(0, 10)
-    }
-    return matches
+    setLoading(false)
   }
 
-  const searchForRelative = async (rawName) => {
-  if (!rawName) return []
-  const words = rawName.trim().split(/\s+/)
-  const firstName = words[0]
-  const lastName = words[words.length - 1]
-  const { data, error } = await supabase.from('v_deceased_search').select('*')
-    .ilike('last_name', '%' + lastName + '%')
-    .ilike('first_name', '%' + firstName + '%')
-    .limit(8)
-  if (error) return []
-  return data || []
-}
-
-const buildKinshipSuggestions = async (person, matchedRecord, allConfirmedPeople) => {
-  const relationships = parseKinshipHints(person.kinship_hints || [])
-  const suggestions = []
-
-  for (const rel of relationships) {
-    if (rel.implicit && !rel.theirChild) {
-      // "His Wife" — spouse of first confirmed person on stone
-      if (rel.type === 'spouse' && allConfirmedPeople.length > 0) {
-        const other = allConfirmedPeople[allConfirmedPeople.length - 1]
-        suggestions.push({
-          subjectId: matchedRecord.deceased_id,
-          subjectName: matchedRecord.full_name,
-          type: 'spouse',
-          hint: rel.hint,
-          candidates: [other],
-          implicit: true
-        })
-      }
-    } else if (rel.theirChild) {
-      // "Their Son/Daughter" — child of all previously confirmed people
-      if (allConfirmedPeople.length > 0) {
-        for (const parent of allConfirmedPeople) {
-          suggestions.push({
-            subjectId: matchedRecord.deceased_id,
-            subjectName: matchedRecord.full_name,
-            type: 'child_of',
-            hint: rel.hint,
-            candidates: [parent],
-            implicit: false
-          })
-        }
-      }
-    } else {
-      // Explicit named relationships
-      for (const rawName of rel.rawNames) {
-        const candidates = await searchForRelative(rawName)
-        if (candidates.length > 0) {
-          suggestions.push({
-            subjectId: matchedRecord.deceased_id,
-            subjectName: matchedRecord.full_name,
-            type: rel.type,
-            hint: rel.hint,
-            rawName,
-            candidates
-          })
-        }
-      }
-    }
+  // ── MATRIX PHASE — build relationship matrix ─────────────
+  const updatePersonRole = (index, role) => {
+    setStoneMatrix(prev => ({
+      ...prev,
+      people: prev.people.map((p, i) => i === index ? { ...p, role } : p)
+    }))
   }
 
-  // If multiple people on stone and no explicit kinship — suggest spouse
-  if (suggestions.length === 0 && allConfirmedPeople.length > 0) {
-    const other = allConfirmedPeople[allConfirmedPeople.length - 1]
-    suggestions.push({
-      subjectId: matchedRecord.deceased_id,
-      subjectName: matchedRecord.full_name,
-      type: 'spouse',
-      hint: 'Same stone',
-      candidates: [other],
-      implicit: true
+  const updateCorrectedName = (index, name) => {
+    setStoneMatrix(prev => ({
+      ...prev,
+      people: prev.people.map((p, i) => i === index ? { ...p, correctedName: name } : p)
+    }))
+  }
+
+  const confirmRelationship = (personIndex, rel, objectIndex) => {
+    // objectIndex is the index of the other person in stoneMatrix.people
+    setStoneMatrix(prev => {
+      const people = [...prev.people]
+      const person = { ...people[personIndex] }
+      const confirmed = {
+        type: rel.type,
+        hint: rel.hint,
+        objectIndex,
+        objectName: people[objectIndex]?.correctedName || rel.rawNames[0] || 'Unknown'
+      }
+      person.confirmedRelationships = [...person.confirmedRelationships, confirmed]
+      people[personIndex] = person
+      return { ...prev, people }
     })
   }
 
-  return suggestions
-}
-const handleManualLinkSearch = async (query) => {
-  if (!query.trim()) return
-  setManualLinkSearching(true)
-  setManualLinkResults([])
-  const terms = query.trim().split(/[\s,]+/).filter(Boolean)
-  let dbQuery = supabase.from('v_deceased_search').select('*')
-  if (terms.length === 1) {
-    dbQuery = dbQuery.or('first_name.ilike.*' + terms[0] + '*,last_name.ilike.*' + terms[0] + '*,maiden_name.ilike.*' + terms[0] + '*')
-  } else {
-    const lastName = terms[terms.length - 1]
-    const firstTerms = terms.slice(0, -1)
-    dbQuery = dbQuery.ilike('last_name', '%' + lastName + '%')
-    firstTerms.forEach(term => {
-      dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%')
+  const skipRelationship = (personIndex, relIndex) => {
+    setStoneMatrix(prev => {
+      const people = [...prev.people]
+      const person = { ...people[personIndex] }
+      const rels = [...person.relationships]
+      rels.splice(relIndex, 1)
+      person.relationships = rels
+      people[personIndex] = person
+      return { ...prev, people }
     })
   }
-  const { data, error } = await dbQuery.order('last_name').order('first_name').limit(20)
-  if (!error) setManualLinkResults(data || [])
-  setManualLinkSearching(false)
-}
-  const handleVolunteerSearch = async (overrideQuery) => {
-    const q = overrideQuery || searchQuery
-    if (!q.trim()) return
-    setSearching(true)
-    setSearchResults(null)
-    setSearchSelected(null)
-    setSearchStoneData(null)
-    const terms = q.trim().split(/[\s,]+/).filter(Boolean)
+
+  const proceedToMatch = () => {
+    // Pre-populate search query with first person's corrected name
+    if (stoneMatrix?.people?.length > 0) {
+      setMatchSearchQuery(stoneMatrix.people[0].correctedName)
+      setMatchSearchResults([])
+    }
+    setMatchingIndex(0)
+    setPhotoPhase('match')
+  }
+
+  // ── MATCH PHASE ──────────────────────────────────────────
+  const handleMatchSearch = async (query) => {
+    if (!query.trim()) return
+    setMatchSearching(true)
+    setMatchSearchResults([])
+    const terms = query.trim().split(/[\s,]+/).filter(Boolean)
     let dbQuery = supabase.from('v_deceased_search').select('*')
     if (terms.length === 1) {
       dbQuery = dbQuery.or('first_name.ilike.*' + terms[0] + '*,last_name.ilike.*' + terms[0] + '*,maiden_name.ilike.*' + terms[0] + '*')
@@ -307,18 +275,240 @@ const handleManualLinkSearch = async (query) => {
         dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%')
       })
     }
+    // Apply year window if we have a death year
+    const person = stoneMatrix?.people?.[matchingIndex]
+    const deathYearMatch = (person?.geminiData?.date_of_death_verbatim || '').match(/\d{4}/)
+    if (deathYearMatch) {
+      const year = parseInt(deathYearMatch[0])
+      dbQuery = dbQuery.gte('date_of_death', (year - 15) + '-01-01').lte('date_of_death', (year + 15) + '-12-31')
+    }
+    const { data, error } = await dbQuery.order('last_name').order('first_name').limit(20)
+    if (!error) setMatchSearchResults(data || [])
+    setMatchSearching(false)
+  }
+
+  const selectMatch = (record) => {
+    setStoneMatrix(prev => ({
+      ...prev,
+      people: prev.people.map((p, i) =>
+        i === matchingIndex ? { ...p, matchedRecord: record, matchStatus: 'matched' } : p
+      )
+    }))
+  }
+
+  const skipMatch = () => {
+    setStoneMatrix(prev => ({
+      ...prev,
+      people: prev.people.map((p, i) =>
+        i === matchingIndex ? { ...p, matchStatus: 'skipped' } : p
+      )
+    }))
+  }
+
+  const nextPerson = () => {
+    const nextIndex = matchingIndex + 1
+    if (nextIndex < stoneMatrix.people.length) {
+      setMatchingIndex(nextIndex)
+      setMatchSearchQuery(stoneMatrix.people[nextIndex].correctedName)
+      setMatchSearchResults([])
+    } else {
+      // All people processed — save everything
+      saveStone()
+    }
+  }
+
+  // ── GPS ──────────────────────────────────────────────────
+  const getAccuratePosition = () => new Promise((resolve, reject) => {
+    let bestPosition = null
+    setGpsStatus('Acquiring GPS...')
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        bestPosition = pos
+        const acc = Math.round(pos.coords.accuracy)
+        setGpsStatus('GPS: ' + acc + 'm accuracy' + (acc <= 10 ? ' ✓' : ' (waiting...)'))
+        if (pos.coords.accuracy <= 10) {
+          navigator.geolocation.clearWatch(watchId)
+          setGpsStatus(null)
+          resolve(pos)
+        }
+      },
+      (err) => { if (bestPosition) { setGpsStatus(null); resolve(bestPosition) } else { reject(err) } },
+      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
+    )
+    setTimeout(() => {
+      navigator.geolocation.clearWatch(watchId)
+      setGpsStatus(null)
+      if (bestPosition) {
+        if (Math.round(bestPosition.coords.accuracy) > 10) {
+          alert('Poor GPS fix (' + Math.round(bestPosition.coords.accuracy) + 'm). Location saved but may be imprecise.')
+        }
+        resolve(bestPosition)
+      } else { reject(new Error('Could not get GPS position')) }
+    }, 20000)
+  })
+
+  // ── SAVE EVERYTHING ──────────────────────────────────────
+  const saveStone = async () => {
+    setSaving(true)
+    try {
+      // 1. Upload photo
+      const b64 = imageBase64Ref.current
+      const byteString = atob(b64)
+      const byteArray = new Uint8Array(byteString.length)
+      for (let i = 0; i < byteString.length; i++) byteArray[i] = byteString.charCodeAt(i)
+      const blob = new Blob([byteArray], { type: 'image/jpeg' })
+      const fileName = Date.now() + '_' + session.user.id + '.jpg'
+
+      const [position, uploadResult] = await Promise.all([
+        getAccuratePosition(),
+        supabase.storage.from('Stone_Images').upload(fileName, blob, { contentType: 'image/jpeg' })
+      ])
+      if (uploadResult.error) throw uploadResult.error
+
+      const lat = position.coords.latitude
+      const lng = position.coords.longitude
+      const accuracy = position.coords.accuracy
+      const { data: { publicUrl } } = supabase.storage.from('Stone_Images').getPublicUrl(fileName)
+
+      // 2. Create stone record
+      const occupants = stoneMatrix.people.filter(p => p.role === 'occupant')
+      const inscriptionText = stoneMatrix.people.map(p =>
+        [p.correctedName, p.geminiData.date_of_birth_verbatim, p.geminiData.date_of_death_verbatim,
+          ...(p.geminiData.kinship_hints || [])].filter(Boolean).join(' ')
+      ).join(' | ')
+
+      const { data: stoneData, error: stoneError } = await supabase.from('stones').insert({
+        cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+        volunteer_notes: volunteerNotes,
+        stone_condition: stoneMatrix.stone_condition,
+        condition_notes: stoneMatrix.stone_notes,
+        inscription_text: inscriptionText,
+        field_status: selectedFlags.length > 0 ? 'needs_followup' : 'complete',
+        flags: selectedFlags,
+        location: 'SRID=4326;POINT(' + lng + ' ' + lat + ')',
+        gps_accuracy_m: accuracy
+      }).select().single()
+      if (stoneError) throw stoneError
+
+      currentStoneRef.current = { stoneData, lat, lng, accuracy }
+
+      // 3. Save photo
+      await supabase.from('stone_photos').insert({
+        stone_id: stoneData.stone_id, photo_url: publicUrl,
+        side: 'front', taken_by: session.user.id, is_primary: true
+      })
+
+      // 4. Link matched people to stone
+      for (const person of stoneMatrix.people) {
+        if (person.matchedRecord) {
+          await supabase.from('stone_deceased').insert({
+            stone_id: stoneData.stone_id,
+            deceased_id: person.matchedRecord.deceased_id,
+            confirmed_by: session.user.id,
+            confirmed_at: new Date().toISOString(),
+            match_method: 'volunteer_confirmed',
+            role: person.role
+          })
+
+          // Update maiden name if Gemini found one
+          if (person.geminiData.maiden_name && !person.matchedRecord.maiden_name) {
+            await supabase.from('deceased').update({ maiden_name: person.geminiData.maiden_name })
+              .eq('deceased_id', person.matchedRecord.deceased_id)
+          }
+
+          // Log activity
+          await supabase.from('activity_log').insert({
+            user_id: session.user.id, action: 'match_confirmed', entity_type: 'stone_deceased',
+            entity_id: stoneData.stone_id, cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+            metadata: { deceased_name: person.matchedRecord.full_name, role: person.role, gps: { lat, lng, accuracy } }
+          })
+        }
+      }
+
+      // 5. Save confirmed kinship relationships
+      for (const person of stoneMatrix.people) {
+        if (!person.matchedRecord) continue
+        for (const rel of person.confirmedRelationships) {
+          const objectPerson = stoneMatrix.people[rel.objectIndex]
+          if (!objectPerson?.matchedRecord) continue
+          const inverseType = INVERSE_REL[rel.type] || 'unknown'
+          await Promise.all([
+            supabase.from('kinship').insert({
+              primary_deceased_id: person.matchedRecord.deceased_id,
+              relative_deceased_id: objectPerson.matchedRecord.deceased_id,
+              relationship_type: rel.type, source: 'stone_inscription',
+              confidence: 'probable', notes: rel.hint
+            }),
+            supabase.from('kinship').insert({
+              primary_deceased_id: objectPerson.matchedRecord.deceased_id,
+              relative_deceased_id: person.matchedRecord.deceased_id,
+              relationship_type: inverseType, source: 'stone_inscription',
+              confidence: 'probable', notes: rel.hint
+            })
+          ])
+        }
+      }
+
+      alert('Stone saved! ' + occupants.length + ' occupant(s) cataloged.')
+      setPhotoPhase('done')
+    } catch (err) {
+      console.error(err)
+      alert('Error saving stone: ' + err.message)
+    }
+    setSaving(false)
+  }
+
+  const saveNotes = async () => {
+    if (!currentStoneRef.current) return
+    setSavingNotes(true)
+    try {
+      const { stoneData } = currentStoneRef.current
+      await supabase.from('stones').update({
+        volunteer_notes: volunteerNotes,
+        flags: selectedFlags,
+        field_status: selectedFlags.length > 0 ? 'needs_followup' : 'complete'
+      }).eq('stone_id', stoneData.stone_id)
+      alert('Notes saved!')
+      setShowNotes(false)
+    } catch (err) { alert('Error: ' + err.message) }
+    setSavingNotes(false)
+  }
+
+  const clearAndReset = () => {
+    setImage(null); imageBase64Ref.current = null
+    setStoneMatrix(null); setPhotoPhase('capture')
+    currentStoneRef.current = null
+    setVolunteerNotes(''); setSelectedFlags([]); setShowNotes(false)
+    setGpsStatus(null); setMatchingIndex(0)
+    setMatchSearchQuery(''); setMatchSearchResults([])
+    setPendingPhotoFor(null)
+    setMode('landing')
+  }
+
+  // ── SEARCH FUNCTIONS ─────────────────────────────────────
+  const handleVolunteerSearch = async (overrideQuery) => {
+    const q = overrideQuery || searchQuery
+    if (!q.trim()) return
+    setSearching(true); setSearchResults(null); setSearchSelected(null); setSearchStoneData(null)
+    const terms = q.trim().split(/[\s,]+/).filter(Boolean)
+    let dbQuery = supabase.from('v_deceased_search').select('*')
+    if (terms.length === 1) {
+      dbQuery = dbQuery.or('first_name.ilike.*' + terms[0] + '*,last_name.ilike.*' + terms[0] + '*,maiden_name.ilike.*' + terms[0] + '*')
+    } else {
+      const lastName = terms[terms.length - 1]
+      const firstTerms = terms.slice(0, -1)
+      dbQuery = dbQuery.ilike('last_name', '%' + lastName + '%')
+      firstTerms.forEach(term => { dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%') })
+    }
     const { data, error } = await dbQuery.order('last_name').order('first_name').limit(50)
-    if (error) { alert('Search error: ' + error.message) }
-    else { setSearchResults(data || []) }
+    if (error) { alert('Search error: ' + error.message) } else { setSearchResults(data || []) }
     setSearching(false)
   }
 
   const selectSearchRecord = async (record) => {
-    setSearchSelected(record)
-    setSearchStoneData(null)
+    setSearchSelected(record); setSearchStoneData(null)
     if (record.is_photographed) {
-      const { data, error } = await supabase
-        .from('stone_deceased')
+      const { data, error } = await supabase.from('stone_deceased')
         .select('stones ( stone_id, gps_accuracy_m, condition_notes, inscription_text, stone_photos ( photo_url, is_primary ) )')
         .eq('deceased_id', record.deceased_id).limit(1).single()
       if (!error && data?.stones) {
@@ -345,265 +535,10 @@ const handleManualLinkSearch = async (query) => {
       : 'https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng + '&travelmode=walking', '_blank')
   }
 
-  const analyzePhoto = async () => {
-    if (!imageBase64) return
-    setLoading(true)
-    setResults(null)
-    setKinshipSuggestions(null)
-    currentStoneRef.current = null
-    setConfirmedPeople([])
-    setVolunteerNotes('')
-    setSelectedFlags([])
-    setShowNotes(false)
-    try {
-      const resizedBase64 = await resizeImage(imageBase64)
-      const geminiResponse = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: resizedBase64 })
-      })
-      const geminiData = await geminiResponse.json()
-      if (!geminiData.candidates || geminiData.candidates.length === 0) {
-        throw new Error('Gemini error: ' + (geminiData.error?.message || JSON.stringify(geminiData)))
-      }
-      const extracted = JSON.parse(geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim())
-      const peopleWithMatches = await Promise.all(
-        (extracted.people || []).map(async (person) => ({ person, matches: await searchForPerson(person) }))
-      )
-      const newResults = { peopleWithMatches, stone_notes: extracted.stone_notes, stone_condition: extracted.stone_condition || 'fair' }
-      setResults(newResults)
-      resultsRef.current = newResults
-
-      // Auto-launch search if first person has 0 matches
-      const firstNoMatch = peopleWithMatches.find(p => p.matches.length === 0)
-if (firstNoMatch) {
-  const p = firstNoMatch.person
-  const autoQuery = [p.first_name, p.last_name].filter(Boolean).join(' ')
-  if (autoQuery) {
-    setSearchQuery(autoQuery)
-    setSearchResults(null)
-    setSearchSelected(null)
-    setSearchStoneData(null)
-    setMode('search')
-    handleVolunteerSearch(autoQuery)
-  }
-}
-    } catch (err) {
-      console.error('Full error:', err)
-      alert('Error: ' + err.message)
-    }
-    setLoading(false)
-  }
-
-  const uploadPhotoAndCreateStone = async () => {
-    const b64 = imageBase64Ref.current || imageBase64
-    if (!b64) throw new Error('No photo available')
-    const byteString = atob(b64)
-    const byteArray = new Uint8Array(byteString.length)
-    for (let i = 0; i < byteString.length; i++) byteArray[i] = byteString.charCodeAt(i)
-    const blob = new Blob([byteArray], { type: 'image/jpeg' })
-    const fileName = Date.now() + '_' + session.user.id + '.jpg'
-    const currentResults = resultsRef.current || results
-
-    // Get best GPS fix within 20 seconds
-const getAccuratePosition = () => new Promise((resolve, reject) => {
-  let bestPosition = null
-  setGpsStatus('Acquiring GPS...')
-  
-  const watchId = navigator.geolocation.watchPosition(
-    (pos) => {
-      bestPosition = pos
-      const acc = Math.round(pos.coords.accuracy)
-      setGpsStatus('GPS: ' + acc + 'm accuracy' + (acc <= 10 ? ' ✓' : ' (waiting for better fix...)'))
-      
-      if (pos.coords.accuracy <= 10) {
-        navigator.geolocation.clearWatch(watchId)
-        setGpsStatus(null)
-        resolve(pos)
-      }
-    },
-    (err) => {
-      if (bestPosition) {
-        setGpsStatus(null)
-        resolve(bestPosition)
-      } else {
-        reject(err)
-      }
-    },
-    { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
-  )
-
-  // After 20 seconds, use best position we have regardless of accuracy
-  setTimeout(() => {
-    navigator.geolocation.clearWatch(watchId)
-    setGpsStatus(null)
-    if (bestPosition) {
-      const acc = Math.round(bestPosition.coords.accuracy)
-      if (acc > 10) {
-        alert('Poor GPS fix (' + acc + 'm accuracy). Location saved but may be imprecise.')
-      }
-      resolve(bestPosition)
-    } else {
-      reject(new Error('Could not get GPS position'))
-    }
-  }, 20000)
-})
-
-const [position, uploadResult] = await Promise.all([
-  getAccuratePosition(),
-  supabase.storage.from('Stone_Images').upload(fileName, blob, { contentType: 'image/jpeg' })
-])
-    if (uploadResult.error) throw uploadResult.error
-
-    const lat = position.coords.latitude
-    const lng = position.coords.longitude
-    const accuracy = position.coords.accuracy
-    const { data: { publicUrl } } = supabase.storage.from('Stone_Images').getPublicUrl(fileName)
-
-    const { data: stoneData, error: stoneError } = await supabase.from('stones').insert({
-      cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
-      volunteer_notes: '',
-      stone_condition: currentResults?.stone_condition || 'fair',
-      condition_notes: currentResults?.stone_notes || '',
-      inscription_text: currentResults?.peopleWithMatches
-        ? currentResults.peopleWithMatches.map(p => [p.person.first_name, p.person.middle_name, p.person.last_name,
-            p.person.date_of_birth_verbatim, p.person.date_of_death_verbatim,
-            ...(p.person.kinship_hints || [])].filter(Boolean).join(' ')).join(' | ')
-        : '',
-      field_status: 'complete',
-      location: 'SRID=4326;POINT(' + lng + ' ' + lat + ')',
-      gps_accuracy_m: accuracy
-    }).select().single()
-    if (stoneError) throw stoneError
-
-    await supabase.from('stone_photos').insert({
-      stone_id: stoneData.stone_id, photo_url: publicUrl,
-      side: 'front', taken_by: session.user.id, is_primary: true
-    })
-
-    currentStoneRef.current = { stoneData, lat, lng, accuracy }
-    return { stoneData, lat, lng, accuracy }
-  }
-
-  const confirmMatch = async (person, matchedRecord) => {
-    setConfirming(matchedRecord.deceased_id)
-    try {
-      if (!currentStoneRef.current) {
-        await uploadPhotoAndCreateStone()
-      }
-      const { stoneData, lat, lng, accuracy } = currentStoneRef.current
-
-      await Promise.all([
-        supabase.from('stone_deceased').insert({
-          stone_id: stoneData.stone_id, deceased_id: matchedRecord.deceased_id,
-          confirmed_by: session.user.id, confirmed_at: new Date().toISOString(),
-          match_method: 'volunteer_confirmed'
-        }),
-        supabase.from('activity_log').insert({
-          user_id: session.user.id, action: 'match_confirmed', entity_type: 'stone_deceased',
-          entity_id: stoneData.stone_id, cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
-          metadata: { deceased_name: matchedRecord.full_name, gemini_confidence: person.confidence,
-            kinship_hints: person.kinship_hints, gps: { lat, lng, accuracy } }
-        }),
-        person.maiden_name && !matchedRecord.maiden_name
-          ? supabase.from('deceased').update({ maiden_name: person.maiden_name }).eq('deceased_id', matchedRecord.deceased_id)
-          : Promise.resolve()
-      ])
-
-     const newConfirmedPeople = [...confirmedPeople, { ...matchedRecord, person }]
-      setConfirmedPeople(newConfirmedPeople)
-
-      const allSuggestions = await buildKinshipSuggestions(person, matchedRecord, confirmedPeople)
-
-      if (allSuggestions.length > 0) {
-        setKinshipSuggestions(allSuggestions)
-      } else {
-        alert('Match confirmed! ' + matchedRecord.full_name + '\nGPS: ' + lat.toFixed(6) + ', ' + lng.toFixed(6))
-      }
-          setConfirming(null)
-    } catch (err) {
-      setConfirming(null)
-      console.error(err)
-      alert('Error saving match: ' + err.message)
-    }
-  }
-
-  const confirmKinship = async (suggestion, candidate) => {
-    const inverseType = { 
-  spouse: 'spouse', 
-  child_of: 'parent_of', 
-  parent_of: 'child_of', 
-  sibling: 'sibling' 
-}[suggestion.type] || 'unknown'
-    try {
-      await Promise.all([
-       supabase.from('kinship').insert({
-  primary_deceased_id: suggestion.subjectId, relative_deceased_id: candidate.deceased_id,
-  relationship_type: suggestion.type, source: 'stone_inscription', confidence: 'probable', notes: suggestion.hint
-}),
-supabase.from('kinship').insert({
-  primary_deceased_id: candidate.deceased_id, relative_deceased_id: suggestion.subjectId,
-  relationship_type: inverseType, source: 'stone_inscription', confidence: 'probable', notes: suggestion.hint
-}),
-        supabase.from('activity_log').insert({
-          user_id: session.user.id, action: 'kinship_confirmed', entity_type: 'kinship',
-          entity_id: suggestion.subjectId, cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
-          metadata: { subject: suggestion.subjectName, relative: candidate.full_name, relationship: suggestion.type }
-        })
-      ])
-      alert('Kinship saved: ' + suggestion.subjectName + ' is ' + suggestion.type + ' of ' + candidate.full_name)
-      setKinshipSuggestions(prev => prev.filter(s => s !== suggestion))
-    } catch (err) {
-      console.error(err); alert('Error saving kinship: ' + err.message)
-    }
-  }
-
-  const saveNotes = async () => {
-    if (!volunteerNotes && selectedFlags.length === 0) return
-    setSavingNotes(true)
-    try {
-      // Create stone if not already created
-      if (!currentStoneRef.current) {
-        await uploadPhotoAndCreateStone()
-      }
-      const { stoneData } = currentStoneRef.current
-      const newStatus = selectedFlags.includes('Person not in database — needs new record')
-        ? 'needs_curation'
-        : selectedFlags.length > 0 ? 'needs_followup' : 'complete'
-
-      const { error } = await supabase.from('stones').update({
-        volunteer_notes: volunteerNotes,
-        flags: selectedFlags,
-        field_status: newStatus
-      }).eq('stone_id', stoneData.stone_id)
-
-      if (error) throw error
-      alert('Notes saved!')
-      setShowNotes(false)
-    } catch (err) {
-      console.error(err)
-      alert('Error saving notes: ' + err.message)
-    }
-    setSavingNotes(false)
-  }
-
-  const clearPhotoResults = () => {
-  setResults(null); setImage(null); setImageBase64(null)
-  imageBase64Ref.current = null; resultsRef.current = null
-  setKinshipSuggestions(null); setConfirming(null)
-  setConfirmedPeople([]); currentStoneRef.current = null
-  setVolunteerNotes(''); setSelectedFlags([]); setShowNotes(false)
-  setGpsStatus(null)
-  // Clear search state too
-  setSearchQuery(''); setSearchResults(null)
-  setSearchSelected(null); setSearchStoneData(null)
-  setPendingPhotoFor(null)
-  setMode('landing')
-}
-
+  // ── HEADER ───────────────────────────────────────────────
   const Header = () => (
     <div className="bg-gray-800 p-4 flex items-center justify-between">
-      <h1 className="text-xl font-bold text-green-400 cursor-pointer" onClick={() => setMode('landing')}>
+      <h1 className="text-xl font-bold text-green-400 cursor-pointer" onClick={() => { clearAndReset(); setMode('landing') }}>
         Granite Graph
       </h1>
       <div className="flex gap-3">
@@ -614,7 +549,7 @@ supabase.from('kinship').insert({
     </div>
   )
 
-  // ── LANDING ──────────────────────────────────────────────────
+  // ── LANDING ──────────────────────────────────────────────
   if (mode === 'landing') {
     return (
       <div className="min-h-screen bg-gray-900 text-white">
@@ -623,24 +558,10 @@ supabase.from('kinship').insert({
           <p className="text-gray-300 text-center mb-8 mt-4">What would you like to do?</p>
           <input type="file" accept="image/*" capture="environment" ref={fileInput}
             onChange={(e) => { handlePhoto(e); setMode('photograph') }} className="hidden" />
-         <input
-  type="file"
-  accept="image/*"
-  capture="environment"
-  onChange={(e) => { handlePhoto(e) }}
-  style={{
-    width: '100%',
-    padding: '16px',
-    backgroundColor: '#15803d',
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: '1.125rem',
-    borderRadius: '8px',
-    marginTop: '12px',
-    cursor: 'pointer',
-    border: 'none'
-  }}
-/>
+          <button onClick={() => fileInput.current.click()}
+            className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-8 rounded-lg text-xl mb-4">
+            📷 Photograph Stone
+          </button>
           <button onClick={() => setMode('search')}
             className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-8 rounded-lg text-xl">
             🔍 Search Records
@@ -650,13 +571,13 @@ supabase.from('kinship').insert({
     )
   }
 
-  // ── SEARCH ───────────────────────────────────────────────────
+  // ── SEARCH ───────────────────────────────────────────────
   if (mode === 'search') {
     return (
       <div className="min-h-screen bg-gray-900 text-white">
         <Header />
         <div className="p-4 max-w-lg mx-auto">
-          <button onClick={() => { setMode(imageBase64Ref.current ? 'photograph' : 'landing'); setSearchResults(null); setSearchSelected(null) }}
+          <button onClick={() => { setMode('landing'); setSearchResults(null); setSearchSelected(null); setSearchQuery('') }}
             className="text-gray-300 text-sm hover:text-white mb-4">← Back</button>
 
           {!searchSelected && (
@@ -676,19 +597,7 @@ supabase.from('kinship').insert({
                 <div>
                   <p className="text-green-400 font-bold mb-3">{searchResults.length} result{searchResults.length !== 1 ? 's' : ''} found</p>
                   {searchResults.length === 0 && (
-                    <div>
-                      <div className="bg-gray-800 rounded-lg p-4 mb-3"><p className="text-gray-300">No records found.</p></div>
-                      {imageBase64Ref.current && (
-                        <div className="bg-gray-800 border border-yellow-600 rounded-lg p-4">
-                          <p className="text-yellow-400 text-sm font-bold mb-2">Person not in database?</p>
-                          <p className="text-gray-300 text-sm mb-3">You can save a note and flag this stone for curation.</p>
-                          <button onClick={() => setMode('photograph')}
-                            className="w-full bg-yellow-700 hover:bg-yellow-600 text-white font-bold py-2 rounded-lg text-sm">
-                            Go back and add a note
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4"><p className="text-gray-300">No records found.</p></div>
                   )}
                   {searchResults.map(record => (
                     <div key={record.deceased_id} onClick={() => selectSearchRecord(record)}
@@ -763,51 +672,27 @@ supabase.from('kinship').insert({
                   </div>
                 </div>
               )}
-             {!searchSelected.is_photographed && (
-  <div className="bg-gray-800 border border-gray-600 rounded-lg p-4">
-    <p className="text-gray-300 text-sm mb-3">This stone has not been photographed yet.</p>
-    <label style={{
-      display: 'block',
-      width: '100%',
-      padding: '14px',
-      backgroundColor: '#15803d',
-      color: 'white',
-      fontWeight: 'bold',
-      fontSize: '1rem',
-      borderRadius: '8px',
-      cursor: 'pointer',
-      textAlign: 'center',
-      boxSizing: 'border-box'
-    }}>
-      📷 Photograph this stone now
-      <input
-        type="file"
-        accept="image/*"
-        capture="environment"
-        onChange={(e) => {
-          currentStoneRef.current = null
-          resultsRef.current = null
-          setResults(null)
-          setConfirmedPeople([])
-          setKinshipSuggestions(null)
-          setVolunteerNotes('')
-          setSelectedFlags([])
-          setShowNotes(false)
-          setConfirming(null)
-          setGpsStatus(null)
-          setSearchResults(null)
-          setSearchSelected(null)
-          setSearchQuery('')
-          setSearchStoneData(null)
-          setPendingPhotoFor(searchSelected)
-          handlePhoto(e)
-          setMode('photograph')
-        }}
-        style={{ display: 'none' }}
-      />
-    </label>
-  </div>
-)}
+              {!searchSelected.is_photographed && (
+                <div className="bg-gray-800 border border-gray-600 rounded-lg p-4">
+                  <p className="text-gray-300 text-sm mb-3">This stone has not been photographed yet.</p>
+                  <label style={{
+                    display: 'block', width: '100%', padding: '14px',
+                    backgroundColor: '#15803d', color: 'white', fontWeight: 'bold',
+                    fontSize: '1rem', borderRadius: '8px', cursor: 'pointer',
+                    textAlign: 'center', boxSizing: 'border-box'
+                  }}>
+                    📷 Photograph this stone now
+                    <input type="file" accept="image/*" capture="environment"
+                      onChange={(e) => {
+                        setPendingPhotoFor(searchSelected)
+                        setSearchResults(null); setSearchSelected(null)
+                        setSearchQuery(''); setSearchStoneData(null)
+                        handlePhoto(e); setMode('photograph')
+                      }}
+                      style={{ display: 'none' }} />
+                  </label>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -815,276 +700,295 @@ supabase.from('kinship').insert({
     )
   }
 
-  // ── PHOTOGRAPH ───────────────────────────────────────────────
+  // ── PHOTOGRAPH ───────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-900 text-white">
       <Header />
       <div className="p-4 max-w-lg mx-auto">
-        {!results && !kinshipSuggestions && (
-          <button onClick={() => setMode('landing')} className="text-gray-300 text-sm hover:text-white mb-4">← Back</button>
-        )}
 
-        {pendingPhotoFor && !image && (
-  <div className="bg-gray-700 rounded-lg p-4 mb-4">
-    <p className="text-green-400 font-bold mb-1">📋 Ready to photograph:</p>
-    <p className="text-white font-bold text-lg">{pendingPhotoFor.full_name}</p>
-    {pendingPhotoFor.date_of_death_verbatim && <p className="text-gray-300 text-sm">d. {pendingPhotoFor.date_of_death_verbatim}</p>}
-    <input
-      type="file"
-      accept="image/*"
-      capture="environment"
-      onChange={(e) => { handlePhoto(e) }}
-      style={{
-        display: 'block',
-        width: '100%',
-        padding: '16px',
-        backgroundColor: '#15803d',
-        color: 'white',
-        fontWeight: 'bold',
-        fontSize: '1.125rem',
-        borderRadius: '8px',
-        marginTop: '12px',
-        cursor: 'pointer',
-        border: 'none'
-      }}
-    />
-  </div>
-)}
+        {/* ── PHASE: CAPTURE ── */}
+        {photoPhase === 'capture' && (
+          <>
+            <button onClick={() => setMode('landing')} className="text-gray-300 text-sm hover:text-white mb-4">← Back</button>
 
-        {confirmedPeople.length > 0 && (
-          <div className="bg-gray-800 rounded-lg p-3 mb-4 border border-green-700">
-{gpsStatus && (
-  <div className="bg-gray-800 rounded-lg p-3 mb-4 border border-blue-700">
-    <p className="text-blue-400 text-sm">📍 {gpsStatus}</p>
-  </div>
-)}
-            <p className="text-green-400 text-xs font-bold mb-1">Confirmed on this stone:</p>
-            {confirmedPeople.map((p, i) => (
-              <p key={i} className="text-white text-sm">✓ {p.full_name}</p>
-            ))}
-          </div>
-        )}
-
-        {image && (
-          <div className="mb-4">
-            <img src={image} alt="Gravestone" className="w-full rounded-lg mb-3" />
-            <button onClick={analyzePhoto} disabled={loading}
-              className="w-full bg-blue-700 hover:bg-blue-600 disabled:bg-blue-900 text-white font-bold py-3 rounded-lg">
-              {loading ? 'Analyzing...' : 'Analyze with Gemini'}
-            </button>
-          </div>
-        )}
-
-        {kinshipSuggestions && kinshipSuggestions.length > 0 && (
-          <div className="mt-4">
-            <div className="bg-yellow-900 border border-yellow-600 rounded-lg p-4 mb-4">
-              <h2 className="text-yellow-400 font-bold mb-1">Suggested Kinship Links</h2>
-              <p className="text-yellow-200 text-sm">Confirm or skip each suggested relationship.</p>
-            </div>
-            {kinshipSuggestions.map((suggestion, sIndex) => (
-              <div key={sIndex} className="bg-gray-800 rounded-lg p-4 mb-4 border border-gray-600">
-                <p className="text-white font-bold">{suggestion.subjectName}</p>
-                <p className="text-yellow-400 text-sm mb-1">
-  {suggestion.type === 'child_of' ? 'is child of' :
-   suggestion.type === 'parent_of' ? 'is parent of' :
-   suggestion.type === 'spouse' ? 'is spouse of' :
-   suggestion.type === 'sibling' ? 'is sibling of' :
-   'is related to'} {suggestion.rawName ? '"' + suggestion.rawName + '"' : 'person on same stone'}
-</p>
-                <p className="text-gray-400 text-xs mb-3">from: "{suggestion.hint}"</p>
-                <p className="text-gray-300 text-sm mb-2">Confirm relationship with:</p>
-                {suggestion.candidates.map(candidate => (
-                  <div key={candidate.deceased_id} className="bg-gray-700 rounded p-3 mb-2">
-                    <p className="text-white font-bold">{candidate.full_name}</p>
-                    {candidate.date_of_death_verbatim && <p className="text-gray-300 text-sm">d. {candidate.date_of_death_verbatim}</p>}
-                    <button onClick={() => confirmKinship(suggestion, candidate)}
-                      className="mt-2 w-full bg-green-700 hover:bg-green-600 text-white py-2 rounded text-sm font-bold">
-                      Confirm
-                    </button>
-                  </div>
-                ))}
-                <button onClick={() => setKinshipSuggestions(prev => prev.filter((_, i) => i !== sIndex))}
-                  className="w-full bg-gray-700 hover:bg-gray-600 text-gray-300 py-2 rounded text-sm mt-1">
-                  Skip this relationship
-                </button>
-              </div>
-            ))}
-            <button onClick={() => setKinshipSuggestions(null)}
-              className="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg mt-2">
-              Done with kinship
-            </button>
-          </div>
-        )}
-
-        {results && (
-          <div className="mt-4">
-            {results.stone_notes && (
-              <div className="bg-gray-700 rounded-lg p-3 mb-4">
-                <p className="text-gray-300 text-sm">{results.stone_notes}</p>
+            {pendingPhotoFor && !image && (
+              <div className="bg-gray-700 rounded-lg p-4 mb-4">
+                <p className="text-green-400 font-bold mb-1">📋 Ready to photograph:</p>
+                <p className="text-white font-bold text-lg">{pendingPhotoFor.full_name}</p>
+                {pendingPhotoFor.date_of_death_verbatim && <p className="text-gray-300 text-sm">d. {pendingPhotoFor.date_of_death_verbatim}</p>}
+                <input type="file" accept="image/*" capture="environment"
+                  onChange={(e) => { handlePhoto(e) }}
+                  style={{
+                    display: 'block', width: '100%', padding: '16px',
+                    backgroundColor: '#15803d', color: 'white', fontWeight: 'bold',
+                    fontSize: '1.125rem', borderRadius: '8px', marginTop: '12px',
+                    cursor: 'pointer', border: 'none'
+                  }} />
               </div>
             )}
-            <p className="text-green-400 font-bold mb-3">
-              {results.peopleWithMatches.length} person{results.peopleWithMatches.length !== 1 ? 's' : ''} found on stone:
-            </p>
-            {results.peopleWithMatches.map((item, index) => (
-              <div key={index} className="mb-6 border border-gray-700 rounded-lg p-4">
-                <div className="bg-gray-800 rounded-lg p-3 mb-3">
-                  <p className="text-green-400 font-bold text-sm mb-1">Person {index + 1}</p>
-                  <p className="font-bold text-white">
-                    {item.person.first_name} {item.person.middle_name} {item.person.last_name}
-                    {item.person.maiden_name ? ' (nee ' + item.person.maiden_name + ')' : ''}
-                  </p>
-                  {item.person.date_of_birth_verbatim && <p className="text-gray-300 text-sm">b. {item.person.date_of_birth_verbatim}</p>}
-                  {item.person.date_of_death_verbatim && <p className="text-gray-300 text-sm">d. {item.person.date_of_death_verbatim}</p>}
-                  {item.person.kinship_hints?.length > 0 && <p className="text-yellow-400 text-sm">{item.person.kinship_hints.join(', ')}</p>}
-                  <p className={item.person.confidence === 'high' ? 'text-green-400 text-xs mt-1' : item.person.confidence === 'medium' ? 'text-yellow-400 text-xs mt-1' : 'text-red-400 text-xs mt-1'}>
-                    Confidence: {item.person.confidence}
-                  </p>
-                </div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-gray-300 text-sm">Database matches ({item.matches.length}):</p>
-                  {item.matches.length === 0 && (
-                    <button
-                      onClick={() => { setSearchQuery([item.person.first_name, item.person.last_name].filter(Boolean).join(' ')); setMode('search'); handleVolunteerSearch([item.person.first_name, item.person.last_name].filter(Boolean).join(' ')) }}
-                      className="text-green-400 text-xs hover:text-green-300 underline">
-                      Search manually →
-                    </button>
+
+            {image && (
+              <div className="mb-4">
+                <img src={image} alt="Gravestone" className="w-full rounded-lg mb-3" />
+                <button onClick={analyzePhoto} disabled={loading}
+                  className="w-full bg-blue-700 hover:bg-blue-600 disabled:bg-blue-900 text-white font-bold py-3 rounded-lg">
+                  {loading ? 'Analyzing...' : 'Analyze with Gemini'}
+                </button>
+              </div>
+            )}
+
+            {!image && !pendingPhotoFor && (
+              <input type="file" accept="image/*" capture="environment"
+                onChange={(e) => { handlePhoto(e) }}
+                style={{
+                  display: 'block', width: '100%', padding: '16px',
+                  backgroundColor: '#15803d', color: 'white', fontWeight: 'bold',
+                  fontSize: '1.125rem', borderRadius: '8px',
+                  cursor: 'pointer', border: 'none'
+                }} />
+            )}
+          </>
+        )}
+
+        {/* ── PHASE: MATRIX ── */}
+        {photoPhase === 'matrix' && stoneMatrix && (
+          <>
+            <div className="bg-gray-800 rounded-lg p-3 mb-4 border border-green-700">
+              <p className="text-green-400 font-bold mb-1">📋 Stone Review</p>
+              <p className="text-gray-300 text-xs">Confirm each person and their relationships before matching to the database.</p>
+              {stoneMatrix.stone_notes && <p className="text-gray-400 text-xs mt-1">{stoneMatrix.stone_notes}</p>}
+            </div>
+
+            {stoneMatrix.people.map((person, pIndex) => (
+              <div key={pIndex} className="bg-gray-800 rounded-lg p-4 mb-4 border border-gray-600">
+                {/* Person header */}
+                <p className="text-green-400 text-xs font-bold mb-2">Person {pIndex + 1}</p>
+
+                {/* Corrected name */}
+                <input
+                  type="text"
+                  value={person.correctedName}
+                  onChange={e => updateCorrectedName(pIndex, e.target.value)}
+                  className="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm mb-2 outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Full name"
+                />
+
+                {/* Dates */}
+                <div className="flex gap-3 mb-2">
+                  {person.geminiData.date_of_birth_verbatim && (
+                    <p className="text-gray-300 text-xs">b. {person.geminiData.date_of_birth_verbatim}</p>
+                  )}
+                  {person.geminiData.date_of_death_verbatim && (
+                    <p className="text-gray-300 text-xs">d. {person.geminiData.date_of_death_verbatim}</p>
                   )}
                 </div>
-                {item.matches.length === 0 && (
-  <div className="bg-gray-800 rounded p-3 mb-2">
-    <p className="text-gray-400 text-sm mb-2">No matches found.</p>
-    {manualLinkIndex === index ? (
-      <div>
-        <input
-          type="text"
-          value={manualLinkQuery}
-          onChange={e => setManualLinkQuery(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleManualLinkSearch(manualLinkQuery)}
-          placeholder="Type name to search..."
-          className="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 text-white placeholder-gray-400 text-sm outline-none focus:ring-2 focus:ring-green-500 mb-2"
-          autoFocus
-        />
-        <button
-          onClick={() => handleManualLinkSearch(manualLinkQuery)}
-          disabled={manualLinkSearching}
-          className="w-full bg-blue-700 hover:bg-blue-600 text-white py-2 rounded text-sm font-bold mb-2"
-        >
-          {manualLinkSearching ? 'Searching...' : 'Search'}
-        </button>
-        {manualLinkResults.map(match => (
-          <div key={match.deceased_id} className="bg-gray-700 rounded p-3 mb-2">
-            <p className="font-bold text-white">{match.full_name}</p>
-            <p className="text-gray-300 text-sm">
-              {match.date_of_death_verbatim && 'd. ' + match.date_of_death_verbatim}
-              {match.maiden_name && ' | nee ' + match.maiden_name}
-            </p>
-            <button
-              onClick={() => {
-                confirmMatch(item.person, match)
-                setManualLinkIndex(null)
-                setManualLinkQuery('')
-                setManualLinkResults([])
-              }}
-              disabled={confirming === match.deceased_id}
-              className="mt-2 w-full bg-green-700 hover:bg-green-600 text-white py-2 rounded text-sm font-bold"
-            >
-              {confirming === match.deceased_id ? 'Saving...' : 'Link to this person'}
-            </button>
-          </div>
-        ))}
-        <button
-          onClick={() => { setManualLinkIndex(null); setManualLinkQuery(''); setManualLinkResults([]) }}
-          className="w-full bg-gray-700 hover:bg-gray-600 text-gray-300 py-2 rounded text-sm"
-        >
-          Cancel
-        </button>
-      </div>
-    ) : (
-      <button
-        onClick={() => { setManualLinkIndex(index); setManualLinkQuery(''); setManualLinkResults([]) }}
-        className="w-full bg-blue-700 hover:bg-blue-600 text-white py-2 rounded text-sm font-bold"
-      >
-        🔗 Manually link to a person
-      </button>
-    )}
-  </div>
-)}
-                {item.matches.map(match => (
-                  <div key={match.deceased_id} className={'p-3 rounded-lg mb-2 ' + (match.is_photographed ? 'bg-gray-700 border border-yellow-600' : 'bg-gray-800')}>
-                    <p className={'font-bold ' + (match.is_photographed ? 'text-yellow-400' : 'text-white')}>
-                      {match.full_name}{match.is_photographed ? ' (already cataloged)' : ''}
+
+                {/* Kinship hints from Gemini */}
+                {person.geminiData.kinship_hints?.length > 0 && (
+                  <p className="text-yellow-400 text-xs mb-2">{person.geminiData.kinship_hints.join(', ')}</p>
+                )}
+
+                {/* Occupant toggle */}
+                <div className="flex gap-2 mb-3">
+                  <button
+                    onClick={() => updatePersonRole(pIndex, 'occupant')}
+                    className={'flex-1 py-2 rounded text-sm font-bold ' + (person.role === 'occupant' ? 'bg-green-700 text-white' : 'bg-gray-700 text-gray-300')}
+                  >
+                    ⬛ Buried here
+                  </button>
+                  <button
+                    onClick={() => updatePersonRole(pIndex, 'mentioned')}
+                    className={'flex-1 py-2 rounded text-sm font-bold ' + (person.role === 'mentioned' ? 'bg-yellow-700 text-white' : 'bg-gray-700 text-gray-300')}
+                  >
+                    📝 Mentioned only
+                  </button>
+                </div>
+
+                {/* Suggested relationships */}
+                {person.relationships.map((rel, rIndex) => (
+                  <div key={rIndex} className="bg-gray-700 rounded p-3 mb-2">
+                    <p className="text-yellow-400 text-xs font-bold mb-1">
+                      {REL_LABEL[rel.type] || rel.type}: {rel.rawNames.length > 0 ? rel.rawNames.join(' & ') : 'person on same stone'}
                     </p>
-                    <p className="text-gray-300 text-sm">
-                      {match.date_of_death_verbatim && 'd. ' + match.date_of_death_verbatim}
-                      {match.maiden_name && ' | nee ' + match.maiden_name}
-                      {match.yearDiff !== undefined && match.yearDiff < 999 && (' | ' + match.yearDiff + ' yr' + (match.yearDiff !== 1 ? 's' : '') + ' off')}
-                    </p>
-                    <button onClick={() => confirmMatch(item.person, match)}
-                      disabled={confirming === match.deceased_id}
-                      className={'mt-2 w-full py-2 rounded text-sm font-bold ' + (
-                        confirming === match.deceased_id ? 'bg-gray-600 text-gray-400' :
-                        match.is_photographed ? 'bg-yellow-700 hover:bg-yellow-600 text-white' :
-                        'bg-green-700 hover:bg-green-600 text-white'
-                      )}>
-                      {confirming === match.deceased_id ? 'Saving...' : match.is_photographed ? 'Confirm Again' : 'Confirm Match'}
+                    <p className="text-gray-400 text-xs mb-2">"{rel.hint}"</p>
+
+                    {/* Match relationship to another person on stone */}
+                    <p className="text-gray-300 text-xs mb-1">Link to:</p>
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {stoneMatrix.people.filter((_, i) => i !== pIndex).map((otherPerson, oIndex) => {
+                        const actualIndex = oIndex >= pIndex ? oIndex + 1 : oIndex
+                        return (
+                          <button key={actualIndex}
+                            onClick={() => { confirmRelationship(pIndex, rel, actualIndex); skipRelationship(pIndex, rIndex) }}
+                            className="bg-green-700 hover:bg-green-600 text-white text-xs py-1 px-2 rounded">
+                            {otherPerson.correctedName || 'Person ' + (actualIndex + 1)}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <button onClick={() => skipRelationship(pIndex, rIndex)}
+                      className="text-gray-400 text-xs hover:text-gray-200">
+                      Skip this relationship
                     </button>
-                    <button
-                      onClick={() => { setManualLinkIndex(index); setManualLinkQuery(''); setManualLinkResults([]) }}
-                      className="w-full bg-gray-700 hover:bg-gray-600 text-gray-300 py-2 rounded text-sm mt-1"
-                      >               
-                      🔗 Link to a different person
-                     </button>
                   </div>
                 ))}
+
+                {/* Confirmed relationships */}
+                {person.confirmedRelationships.length > 0 && (
+                  <div className="mt-2">
+                    {person.confirmedRelationships.map((rel, i) => (
+                      <p key={i} className="text-green-400 text-xs">
+                        ✓ {REL_LABEL[rel.type] || rel.type} {rel.objectName}
+                      </p>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
 
-            {/* Field Notes Panel */}
+            <button onClick={proceedToMatch}
+              className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-4 rounded-lg mb-3">
+              Continue → Match to Database
+            </button>
+            <button onClick={clearAndReset}
+              className="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg text-sm">
+              Start Over
+            </button>
+          </>
+        )}
+
+        {/* ── PHASE: MATCH ── */}
+        {photoPhase === 'match' && stoneMatrix && (
+          <>
+            {gpsStatus && (
+              <div className="bg-gray-800 rounded-lg p-3 mb-4 border border-blue-700">
+                <p className="text-blue-400 text-sm">📍 {gpsStatus}</p>
+              </div>
+            )}
+
+            <div className="bg-gray-800 rounded-lg p-3 mb-4 border border-green-700">
+              <p className="text-green-400 font-bold">
+                Match {matchingIndex + 1} of {stoneMatrix.people.length}
+              </p>
+              <p className="text-gray-300 text-xs">
+                {stoneMatrix.people.filter(p => p.matchStatus === 'matched').length} matched •{' '}
+                {stoneMatrix.people.filter(p => p.matchStatus === 'skipped').length} skipped •{' '}
+                {stoneMatrix.people.filter(p => p.matchStatus === 'pending').length} pending
+              </p>
+            </div>
+
+            {/* Current person to match */}
+            {(() => {
+              const person = stoneMatrix.people[matchingIndex]
+              if (!person) return null
+              return (
+                <div className="bg-gray-800 rounded-lg p-4 mb-4 border border-gray-600">
+                  <p className="text-green-400 text-xs font-bold mb-1">
+                    {person.role === 'occupant' ? '⬛ Occupant' : '📝 Mentioned'}
+                  </p>
+                  <p className="text-white font-bold text-lg">{person.correctedName}</p>
+                  {person.geminiData.date_of_birth_verbatim && <p className="text-gray-300 text-sm">b. {person.geminiData.date_of_birth_verbatim}</p>}
+                  {person.geminiData.date_of_death_verbatim && <p className="text-gray-300 text-sm">d. {person.geminiData.date_of_death_verbatim}</p>}
+
+                  {person.matchStatus === 'matched' && (
+                    <div className="mt-2 bg-green-900 rounded p-2">
+                      <p className="text-green-400 text-sm">✓ Matched: {person.matchedRecord.full_name}</p>
+                      <button onClick={() => {
+                        setStoneMatrix(prev => ({
+                          ...prev,
+                          people: prev.people.map((p, i) => i === matchingIndex ? { ...p, matchedRecord: null, matchStatus: 'pending' } : p)
+                        }))
+                        setMatchSearchResults([])
+                      }} className="text-gray-400 text-xs hover:text-gray-200 mt-1">Change match</button>
+                    </div>
+                  )}
+
+                  {person.matchStatus !== 'matched' && (
+                    <>
+                      <div className="flex gap-2 mt-3 mb-3">
+                        <input
+                          type="text"
+                          value={matchSearchQuery}
+                          onChange={e => setMatchSearchQuery(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && handleMatchSearch(matchSearchQuery)}
+                          placeholder="Search database..."
+                          className="flex-1 bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm outline-none focus:ring-2 focus:ring-green-500"
+                        />
+                        <button onClick={() => handleMatchSearch(matchSearchQuery)} disabled={matchSearching}
+                          className="bg-green-700 hover:bg-green-600 text-white font-bold px-3 rounded text-sm">
+                          {matchSearching ? '...' : 'Search'}
+                        </button>
+                      </div>
+
+                      {matchSearchResults.map(record => (
+                        <div key={record.deceased_id}
+                          className={'p-3 rounded-lg mb-2 cursor-pointer ' + (record.is_photographed ? 'bg-gray-700 border border-yellow-600' : 'bg-gray-700')}
+                          onClick={() => selectMatch(record)}>
+                          <p className={'font-bold text-sm ' + (record.is_photographed ? 'text-yellow-400' : 'text-white')}>
+                            {record.full_name}{record.is_photographed ? ' (already cataloged)' : ''}
+                          </p>
+                          <p className="text-gray-300 text-xs">
+                            {record.date_of_death_verbatim && 'd. ' + record.date_of_death_verbatim}
+                            {record.maiden_name && ' | nee ' + record.maiden_name}
+                          </p>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )
+            })()}
+
+            <div className="flex gap-2 mb-4">
+              {stoneMatrix.people[matchingIndex]?.matchStatus === 'matched' ? (
+                <button onClick={nextPerson}
+                  className="flex-1 bg-green-700 hover:bg-green-600 text-white font-bold py-3 rounded-lg">
+                  {matchingIndex + 1 < stoneMatrix.people.length ? 'Next Person →' : '💾 Save Stone'}
+                </button>
+              ) : (
+                <>
+                  <button onClick={() => { skipMatch(); nextPerson() }}
+                    className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg text-sm">
+                    Skip — no match
+                  </button>
+                  {matchingIndex + 1 >= stoneMatrix.people.length && (
+                    <button onClick={saveStone} disabled={saving}
+                      className="flex-1 bg-yellow-700 hover:bg-yellow-600 text-white font-bold py-3 rounded-lg text-sm">
+                      {saving ? 'Saving...' : '💾 Save Anyway'}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Field notes */}
             <div className="mb-4">
-              <button
-                onClick={() => setShowNotes(!showNotes)}
-                className="w-full bg-gray-800 border border-gray-600 rounded-lg py-3 px-4 text-left text-gray-300 text-sm flex items-center justify-between"
-              >
+              <button onClick={() => setShowNotes(!showNotes)}
+                className="w-full bg-gray-800 border border-gray-600 rounded-lg py-3 px-4 text-left text-gray-300 text-sm flex items-center justify-between">
                 <span>📝 Add Field Notes (optional)</span>
                 <span>{showNotes ? '▲' : '▼'}</span>
               </button>
               {showNotes && (
                 <div className="bg-gray-800 border border-gray-600 border-t-0 rounded-b-lg p-4">
-                  <textarea
-                    value={volunteerNotes}
-                    onChange={e => setVolunteerNotes(e.target.value)}
+                  <textarea value={volunteerNotes} onChange={e => setVolunteerNotes(e.target.value)}
                     placeholder="Observations about this stone..."
                     className="w-full bg-gray-700 border border-gray-600 rounded-lg p-3 text-white placeholder-gray-400 text-sm outline-none focus:ring-2 focus:ring-green-500 mb-3"
-                    rows={3}
-                  />
+                    rows={3} />
                   <p className="text-gray-400 text-xs mb-2">Flag for follow-up:</p>
-                  {[
-                    'Needs re-photographing',
-                    'Check back or other side',
-                    'Stone needs cleaning',
-                    'Person not in database — needs new record',
-                    'Other issue'
-                  ].map(flag => (
+                  {['Needs re-photographing', 'Check back or other side', 'Stone needs cleaning',
+                    'Person not in database — needs new record', 'Other issue'].map(flag => (
                     <label key={flag} className="flex items-center gap-2 mb-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedFlags.includes(flag)}
+                      <input type="checkbox" checked={selectedFlags.includes(flag)}
                         onChange={e => {
                           if (e.target.checked) setSelectedFlags(prev => [...prev, flag])
                           else setSelectedFlags(prev => prev.filter(f => f !== flag))
-                        }}
-                        className="w-4 h-4"
-                      />
+                        }} className="w-4 h-4" />
                       <span className="text-gray-300 text-sm">{flag}</span>
                     </label>
                   ))}
                   {(volunteerNotes || selectedFlags.length > 0) && (
-                    <button
-                      onClick={saveNotes}
-                      disabled={savingNotes}
-                      className="w-full bg-green-700 hover:bg-green-600 disabled:bg-gray-600 text-white font-bold py-2 rounded-lg text-sm mt-2"
-                    >
+                    <button onClick={saveNotes} disabled={savingNotes}
+                      className="w-full bg-green-700 hover:bg-green-600 disabled:bg-gray-600 text-white font-bold py-2 rounded-lg text-sm mt-2">
                       {savingNotes ? 'Saving...' : 'Save Notes'}
                     </button>
                   )}
@@ -1092,11 +996,28 @@ supabase.from('kinship').insert({
               )}
             </div>
 
-            <button onClick={clearPhotoResults} className="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg mt-2">
-              Clear and Start Over
+            <button onClick={clearAndReset} className="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg text-sm">
+              Start Over
+            </button>
+          </>
+        )}
+
+        {/* ── PHASE: DONE ── */}
+        {photoPhase === 'done' && (
+          <div className="text-center py-12">
+            <p className="text-green-400 text-4xl mb-4">✓</p>
+            <p className="text-white text-xl font-bold mb-2">Stone Saved!</p>
+            <p className="text-gray-300 text-sm mb-8">
+              {stoneMatrix?.people?.filter(p => p.matchStatus === 'matched').length || 0} matched •{' '}
+              {stoneMatrix?.people?.filter(p => p.matchStatus === 'skipped').length || 0} skipped
+            </p>
+            <button onClick={clearAndReset}
+              className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-4 rounded-lg text-lg">
+              📷 Photograph Another Stone
             </button>
           </div>
         )}
+
       </div>
     </div>
   )
