@@ -35,17 +35,17 @@ const parseKinshipHints = (hints) => {
     const childMatch = h.match(/\b(?:son|daughter|child)\s+of\s+(.+)/i)
     if (childMatch) {
       const parentNames = childMatch[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
-      relationships.push({ type: 'child_of', rawNames: parentNames, hint, implicit: false })
+      relationships.push({ type: 'child', rawNames: parentNames, hint, implicit: false })
       return
     }
     if (/\btheir\s+(?:son|daughter|child)\b/i.test(h)) {
-      relationships.push({ type: 'child_of', rawNames: [], hint, implicit: true, theirChild: true })
+      relationships.push({ type: 'child', rawNames: [], hint, implicit: true, theirChild: true })
       return
     }
     const parentMatch = h.match(/\b(?:father|mother|parent)\s+of\s+(.+)/i)
     if (parentMatch) {
       const childNames = parentMatch[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
-      relationships.push({ type: 'parent_of', rawNames: childNames, hint, implicit: false })
+      relationships.push({ type: 'parent', rawNames: childNames, hint, implicit: false })
       return
     }
     const siblingMatch = h.match(/\b(?:brother|sister|sibling)\s+of\s+(.+)/i)
@@ -59,15 +59,15 @@ const parseKinshipHints = (hints) => {
 
 const REL_LABEL = {
   spouse: 'Spouse of',
-  child_of: 'Child of',
-  parent_of: 'Parent of',
+  child: 'Child',
+  parent: 'Parent',
   sibling: 'Sibling of',
 }
 
 const INVERSE_REL = {
   spouse: 'spouse',
-  child_of: 'parent_of',
-  parent_of: 'child_of',
+  child: 'parent',
+  parent: 'child',
   sibling: 'sibling',
 }
 
