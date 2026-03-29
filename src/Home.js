@@ -372,10 +372,12 @@ export default function Home({ session, onMap, onRecent }) {
 
       // 2. Create stone record
       const occupants = stoneMatrix.people.filter(p => p.role === 'occupant')
-      const inscriptionText = stoneMatrix.people.map(p =>
-        [p.correctedName, p.geminiData.date_of_birth_verbatim, p.geminiData.date_of_death_verbatim,
-          ...(p.geminiData.kinship_hints || [])].filter(Boolean).join(' ')
-      ).join(' | ')
+      const inscriptionText = stoneMatrix.people
+  .filter(p => p.role === 'occupant')
+  .map(p =>
+    [p.correctedName, p.geminiData.date_of_birth_verbatim, p.geminiData.date_of_death_verbatim,
+      ...(p.geminiData.kinship_hints || [])].filter(Boolean).join(' ')
+  ).join(' | ')
 
       const { data: stoneData, error: stoneError } = await supabase.from('stones').insert({
         cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
