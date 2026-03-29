@@ -245,19 +245,38 @@ export default function Search({ onLogin, onHome }) {
             </div>
 
             {stoneData && (
-              <div className="bg-gray-800 rounded-lg p-4 mb-4">
-                {stoneData.condition_notes && <p className="text-gray-300 text-sm mb-2">{stoneData.condition_notes}</p>}
-                {stoneData.inscription_text && (
-                  <div className="mt-2">
-                    <p className="text-gray-400 text-xs mb-1">Inscription</p>
-                    <p className="text-white text-sm font-mono">{stoneData.inscription_text}</p>
-                  </div>
-                )}
-                {stoneData.gps_accuracy_m && (
-                  <p className="text-gray-400 text-xs mt-2">GPS accuracy: {Number(stoneData.gps_accuracy_m).toFixed(1)}m</p>
-                )}
-              </div>
-            )}
+  <div className="bg-gray-800 rounded-lg p-4 mb-4">
+    <p className="text-gray-400 text-xs font-bold uppercase tracking-wide mb-3">Stone Record</p>
+    
+    {stoneData.inscription_text && (
+      <div className="mb-3">
+        <p className="text-gray-400 text-xs mb-1">Inscription</p>
+        <p className="text-white text-sm font-mono leading-relaxed">
+          {stoneData.inscription_text.split('|').map(s => s.trim()).filter(Boolean).join('\n')}
+        </p>
+      </div>
+    )}
+
+    {stoneData.stone_condition && stoneData.stone_condition !== 'good' && (
+      <div className="mb-2">
+        <p className="text-gray-400 text-xs mb-1">Condition</p>
+        <p className={
+          stoneData.stone_condition === 'poor' || stoneData.stone_condition === 'illegible'
+            ? 'text-red-400 text-sm capitalize'
+            : 'text-yellow-400 text-sm capitalize'
+        }>
+          {stoneData.stone_condition}
+        </p>
+      </div>
+    )}
+
+    {stoneData.gps_accuracy_m && (
+      <p className="text-gray-500 text-xs mt-2">
+        📍 GPS accuracy: {Number(stoneData.gps_accuracy_m).toFixed(1)}m
+      </p>
+    )}
+  </div>
+)}
 
             {stoneData && stoneData.lat && stoneData.lng && (
               <div className="mb-4">
@@ -296,7 +315,7 @@ export default function Search({ onLogin, onHome }) {
               </div>
             )}
 
-            {!selected.is_photographed && (
+            {!selected.is_occupant && (
               <div className="bg-gray-800 border border-gray-600 rounded-lg p-4">
                 <p className="text-gray-300 text-sm">This stone has not been photographed yet.</p>
                 {!onLogin && (
