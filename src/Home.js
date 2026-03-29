@@ -611,9 +611,15 @@ export default function Home({ session, onMap, onRecent }) {
                             {record.date_of_death_verbatim && <p className="text-gray-300 text-xs">d. {record.date_of_death_verbatim}</p>}
                           </div>
                         </div>
-                        <span className={record.is_photographed ? 'text-green-400 text-xs' : 'text-gray-400 text-xs'}>
-                          {record.is_photographed ? 'Photographed' : 'Not yet cataloged'}
-                        </span>
+                        <span className={
+  record.is_occupant ? 'text-green-400 text-xs' : 
+  record.is_mentioned ? 'text-yellow-400 text-xs' : 
+  'text-gray-400 text-xs'
+}>
+  {record.is_occupant ? '⬛ Photographed' : 
+   record.is_mentioned ? '📝 Referenced on stone' : 
+   'Not yet cataloged'}
+</span>
                       </div>
                     </div>
                   ))}
@@ -672,7 +678,7 @@ export default function Home({ session, onMap, onRecent }) {
                   </div>
                 </div>
               )}
-              {!searchSelected.is_photographed && (
+              {!searchSelected.is_occupant && (
                 <div className="bg-gray-800 border border-gray-600 rounded-lg p-4">
                   <p className="text-gray-300 text-sm mb-3">This stone has not been photographed yet.</p>
                   <label style={{
