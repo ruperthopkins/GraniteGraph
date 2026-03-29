@@ -84,7 +84,7 @@ export default function Search({ onLogin, onHome }) {
     setSelected(record)
     setStoneData(null)
 
-    if (record.is_photographed) {
+    if (record.is_occupant) {
       const { data, error } = await supabase
         .from('stone_deceased')
         .select('stones ( stone_id, gps_accuracy_m, condition_notes, inscription_text, location, stone_photos ( photo_url, is_primary ) )')
@@ -194,10 +194,12 @@ export default function Search({ onLogin, onHome }) {
                       </div>
                     </div>
                     <div className="text-right">
-                      {record.is_photographed
-                        ? <span className="text-green-400 text-xs">Photographed</span>
-                        : <span className="text-gray-400 text-xs">Not yet cataloged</span>}
-                    </div>
+  {record.is_occupant
+    ? <span className="text-green-400 text-xs">⬛ Photographed</span>
+    : record.is_mentioned
+    ? <span className="text-yellow-400 text-xs">📝 Referenced on stone</span>
+    : <span className="text-gray-400 text-xs">Not yet cataloged</span>}
+</div>
                   </div>
                 </div>
               )
