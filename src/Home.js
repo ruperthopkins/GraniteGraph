@@ -35,17 +35,17 @@ const parseKinshipHints = (hints) => {
     const childMatch = h.match(/\b(?:son|daughter|child)\s+of\s+(.+)/i)
     if (childMatch) {
       const parentNames = childMatch[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
-      relationships.push({ type: 'child_of', rawNames: parentNames, hint, implicit: false })
+      relationships.push({ type: 'child', rawNames: parentNames, hint, implicit: false })
       return
     }
     if (/\btheir\s+(?:son|daughter|child)\b/i.test(h)) {
-      relationships.push({ type: 'child_of', rawNames: [], hint, implicit: true, theirChild: true })
+      relationships.push({ type: 'child', rawNames: [], hint, implicit: true, theirChild: true })
       return
     }
     const parentMatch = h.match(/\b(?:father|mother|parent)\s+of\s+(.+)/i)
     if (parentMatch) {
       const childNames = parentMatch[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
-      relationships.push({ type: 'parent_of', rawNames: childNames, hint, implicit: false })
+      relationships.push({ type: 'parent', rawNames: childNames, hint, implicit: false })
       return
     }
     const siblingMatch = h.match(/\b(?:brother|sister|sibling)\s+of\s+(.+)/i)
@@ -59,15 +59,15 @@ const parseKinshipHints = (hints) => {
 
 const REL_LABEL = {
   spouse: 'Spouse of',
-  child_of: 'Child of',
-  parent_of: 'Parent of',
+  child: 'Child of',
+  parent: 'Parent of',
   sibling: 'Sibling of',
 }
 
 const INVERSE_REL = {
   spouse: 'spouse',
-  child_of: 'parent_of',
-  parent_of: 'child_of',
+  child: 'parent',
+  parent: 'child',
   sibling: 'sibling',
 }
 
@@ -124,6 +124,7 @@ export default function Home({ session, onMap, onRecent }) {
 
   const fileInput = useRef(null)
   const currentStoneRef = useRef(null)
+  const autoSearchTimer = useRef(null)
 
   // ── IMAGE HANDLING ───────────────────────────────────────
   const handlePhoto = (e) => {
@@ -217,6 +218,41 @@ export default function Home({ session, onMap, onRecent }) {
       ...prev,
       people: prev.people.map((p, i) => i === index ? { ...p, correctedName: name } : p)
     }))
+    if (autoSearchTimer.current) clearTimeout(autoSearchTimer.current)
+    autoSearchTimer.current = setTimeout(() => {
+      preSearchPerson(index, name)
+    }, 800)
+  }
+
+  const preSearchPerson = async (index, name) => {
+    if (!name.trim() || name.trim().length < 3) return
+    const terms = name.trim().split(/[\s,]+/).filter(Boolean)
+    let dbQuery = supabase.from('v_deceased_search').select('*')
+    if (terms.length === 1) {
+      dbQuery = dbQuery.or('first_name.ilike.*' + terms[0] + '*,last_name.ilike.*' + terms[0] + '*,maiden_name.ilike.*' + terms[0] + '*')
+    } else {
+      const lastName = terms[terms.length - 1]
+      const firstTerms = terms.slice(0, -1)
+      dbQuery = dbQuery.ilike('last_name', '%' + lastName + '%')
+      firstTerms.forEach(term => {
+        dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%')
+      })
+    }
+    const person = stoneMatrix?.people?.[index]
+    const deathYearMatch = (person?.geminiData?.date_of_death_verbatim || '').match(/\d{4}/)
+    if (deathYearMatch) {
+      const year = parseInt(deathYearMatch[0])
+      dbQuery = dbQuery
+        .gte('date_of_death', (year - 15) + '-01-01')
+        .lte('date_of_death', (year + 15) + '-12-31')
+    }
+    const { data } = await dbQuery.order('last_name').order('first_name').limit(20)
+    if (data && data.length > 0) {
+      setStoneMatrix(prev => ({
+        ...prev,
+        people: prev.people.map((p, i) => i === index ? { ...p, preSearchResults: data } : p)
+      }))
+    }
   }
 
   const confirmRelationship = (personIndex, rel, objectIndex) => {
@@ -249,10 +285,10 @@ export default function Home({ session, onMap, onRecent }) {
   }
 
   const proceedToMatch = () => {
-    // Pre-populate search query with first person's corrected name
     if (stoneMatrix?.people?.length > 0) {
-      setMatchSearchQuery(stoneMatrix.people[0].correctedName)
-      setMatchSearchResults([])
+      const firstPerson = stoneMatrix.people[0]
+      setMatchSearchQuery(firstPerson.correctedName)
+      setMatchSearchResults(firstPerson.preSearchResults || [])
     }
     setMatchingIndex(0)
     setPhotoPhase('match')
@@ -309,8 +345,9 @@ export default function Home({ session, onMap, onRecent }) {
     const nextIndex = matchingIndex + 1
     if (nextIndex < stoneMatrix.people.length) {
       setMatchingIndex(nextIndex)
-      setMatchSearchQuery(stoneMatrix.people[nextIndex].correctedName)
-      setMatchSearchResults([])
+      const next = stoneMatrix.people[nextIndex]
+      setMatchSearchQuery(next.correctedName)
+      setMatchSearchResults(next.preSearchResults || [])
     } else {
       // All people processed — save everything
       saveStone()
@@ -772,6 +809,13 @@ export default function Home({ session, onMap, onRecent }) {
                   className="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm mb-2 outline-none focus:ring-2 focus:ring-green-500"
                   placeholder="Full name"
                 />
+
+                {/* Pre-search indicator */}
+                {person.preSearchResults && (
+                  <p className="text-green-400 text-xs mb-2">
+                    ✓ {person.preSearchResults.length} database match{person.preSearchResults.length !== 1 ? 'es' : ''} found
+                  </p>
+                )}
 
                 {/* Dates */}
                 <div className="flex gap-3 mb-2">
