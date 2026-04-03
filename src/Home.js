@@ -103,6 +103,7 @@ export default function Home({ session, onMap, onRecent }) {
   const [matchSearchQuery, setMatchSearchQuery] = useState('')
   const [matchSearchResults, setMatchSearchResults] = useState([])
   const [matchSearching, setMatchSearching] = useState(false)
+  const [matchSearchAttempted, setMatchSearchAttempted] = useState(false)
   const [saving, setSaving] = useState(false)
 
   // Field notes
@@ -284,21 +285,22 @@ export default function Home({ session, onMap, onRecent }) {
     })
   }
 
-  const proceedToMatch = () => {
-    if (stoneMatrix?.people?.length > 0) {
-      const firstPerson = stoneMatrix.people[0]
-      setMatchSearchQuery(firstPerson.correctedName)
-      setMatchSearchResults(firstPerson.preSearchResults || [])
-    }
-    setMatchingIndex(0)
-    setPhotoPhase('match')
+ const proceedToMatch = () => {
+  if (stoneMatrix?.people?.length > 0) {
+    const firstPerson = stoneMatrix.people[0]
+    setMatchSearchQuery(firstPerson.correctedName)
+    setMatchSearchResults(firstPerson.preSearchResults || [])
+    setMatchSearchAttempted(firstPerson.preSearchResults ? true : false)
   }
-
+  setMatchingIndex(0)
+  setPhotoPhase('match')
+}
   // ── MATCH PHASE ──────────────────────────────────────────
   const handleMatchSearch = async (query) => {
     if (!query.trim()) return
     setMatchSearching(true)
     setMatchSearchResults([])
+    setMatchSearchAttempted(true)
     const terms = query.trim().split(/[\s,]+/).filter(Boolean)
     let dbQuery = supabase.from('v_deceased_search').select('*')
     if (terms.length === 1) {
@@ -348,6 +350,7 @@ export default function Home({ session, onMap, onRecent }) {
       const next = stoneMatrix.people[nextIndex]
       setMatchSearchQuery(next.correctedName)
       setMatchSearchResults(next.preSearchResults || [])
+      setMatchSearchAttempted(next.preSearchResults ? true : false)
     } else {
       // All people processed — save everything
       saveStone()
@@ -993,26 +996,28 @@ export default function Home({ session, onMap, onRecent }) {
             })()}
 
             <div className="flex gap-2 mb-4">
-              {stoneMatrix.people[matchingIndex]?.matchStatus === 'matched' ? (
-                <button onClick={nextPerson} disabled={saving}
-                  className="flex-1 bg-green-700 hover:bg-green-600 disabled:bg-gray-600 text-white font-bold py-3 rounded-lg">
-                  {saving ? '⏳ Saving...' : matchingIndex + 1 < stoneMatrix.people.length ? 'Next Person →' : '💾 Save Stone'}
-                </button>
-              ) : (
-                <>
-                  <button onClick={() => { skipMatch(); nextPerson() }} disabled={saving}
-                    className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white py-3 rounded-lg text-sm">
-                    {saving ? '⏳ Saving...' : 'Skip — no match'}
-                  </button>
-                  {matchingIndex + 1 >= stoneMatrix.people.length && (
-                    <button onClick={saveStone} disabled={saving}
-                      className="flex-1 bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-600 text-white font-bold py-3 rounded-lg text-sm">
-                      {saving ? '⏳ Saving...' : '💾 Save Anyway'}
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
+  {stoneMatrix.people[matchingIndex]?.matchStatus === 'matched' ? (
+    <button onClick={nextPerson} disabled={saving}
+      className="flex-1 bg-green-700 hover:bg-green-600 disabled:bg-gray-600 text-white font-bold py-3 rounded-lg">
+      {saving ? '⏳ Saving...' : matchingIndex + 1 < stoneMatrix.people.length ? 'Next Person →' : '💾 Save Stone'}
+    </button>
+  ) : matchSearchAttempted ? (
+    <>
+      <button onClick={() => { skipMatch(); nextPerson() }} disabled={saving}
+        className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white py-3 rounded-lg text-sm">
+        {saving ? '⏳ Saving...' : 'Skip — no match'}
+      </button>
+      {matchingIndex + 1 >= stoneMatrix.people.length && (
+        <button onClick={saveStone} disabled={saving}
+          className="flex-1 bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-600 text-white font-bold py-3 rounded-lg text-sm">
+          {saving ? '⏳ Saving...' : '💾 Save Anyway'}
+        </button>
+      )}
+    </>
+  ) : (
+    <p className="text-gray-400 text-sm py-3">Search above to find a match</p>
+  )}
+</div>
 
             {/* Field notes */}
             <div className="mb-4">
