@@ -243,9 +243,11 @@ export default function Home({ session, onMap, onRecent }) {
     const deathYearMatch = (person?.geminiData?.date_of_death_verbatim || '').match(/\d{4}/)
     if (deathYearMatch) {
       const year = parseInt(deathYearMatch[0])
-      dbQuery = dbQuery
-        .gte('date_of_death', (year - 15) + '-01-01')
-        .lte('date_of_death', (year + 15) + '-12-31')
+      if (year >= 1700 && year <= 2030) {
+        dbQuery = dbQuery
+          .gte('date_of_death', (year - 15) + '-01-01')
+          .lte('date_of_death', (year + 15) + '-12-31')
+      }
     }
     const { data } = await dbQuery.order('last_name').order('first_name').limit(20)
     if (data && data.length > 0) {
@@ -314,11 +316,13 @@ export default function Home({ session, onMap, onRecent }) {
       })
     }
     // Apply year window if we have a death year
-    const person = stoneMatrix?.people?.[matchingIndex]
+   const person = stoneMatrix?.people?.[matchingIndex]
     const deathYearMatch = (person?.geminiData?.date_of_death_verbatim || '').match(/\d{4}/)
     if (deathYearMatch) {
       const year = parseInt(deathYearMatch[0])
-      dbQuery = dbQuery.gte('date_of_death', (year - 15) + '-01-01').lte('date_of_death', (year + 15) + '-12-31')
+      if (year >= 1700 && year <= 2030) {
+        dbQuery = dbQuery.gte('date_of_death', (year - 15) + '-01-01').lte('date_of_death', (year + 15) + '-12-31')
+      }
     }
     const { data, error } = await dbQuery.order('last_name').order('first_name').limit(20)
     if (!error) setMatchSearchResults(data || [])
