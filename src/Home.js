@@ -35,17 +35,17 @@ const parseKinshipHints = (hints) => {
     const childMatch = h.match(/\b(?:son|daughter|child)\s+of\s+(.+)/i)
     if (childMatch) {
       const parentNames = childMatch[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
-      relationships.push({ type: 'child', rawNames: parentNames, hint, implicit: false })
+      relationships.push({ type: 'child_of', rawNames: parentNames, hint, implicit: false })
       return
     }
     if (/\btheir\s+(?:son|daughter|child)\b/i.test(h)) {
-      relationships.push({ type: 'child', rawNames: [], hint, implicit: true, theirChild: true })
+      relationships.push({ type: 'child_of', rawNames: [], hint, implicit: true, theirChild: true })
       return
     }
     const parentMatch = h.match(/\b(?:father|mother|parent)\s+of\s+(.+)/i)
     if (parentMatch) {
       const childNames = parentMatch[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
-      relationships.push({ type: 'parent', rawNames: childNames, hint, implicit: false })
+      relationships.push({ type: 'parent_of', rawNames: childNames, hint, implicit: false })
       return
     }
     const siblingMatch = h.match(/\b(?:brother|sister|sibling)\s+of\s+(.+)/i)
@@ -59,15 +59,15 @@ const parseKinshipHints = (hints) => {
 
 const REL_LABEL = {
   spouse: 'Spouse of',
-  child: 'Child',
-  parent: 'Parent',
+  child_of: 'Child of',
+  parent_of: 'Parent of',
   sibling: 'Sibling of',
 }
 
 const INVERSE_REL = {
   spouse: 'spouse',
-  child: 'parent',
-  parent: 'child',
+  child_of: 'parent_of',
+  parent_of: 'child_of',
   sibling: 'sibling',
 }
 
@@ -372,12 +372,10 @@ export default function Home({ session, onMap, onRecent }) {
 
       // 2. Create stone record
       const occupants = stoneMatrix.people.filter(p => p.role === 'occupant')
-      const inscriptionText = stoneMatrix.people
-  .filter(p => p.role === 'occupant')
-  .map(p =>
-    [p.correctedName, p.geminiData.date_of_birth_verbatim, p.geminiData.date_of_death_verbatim,
-      ...(p.geminiData.kinship_hints || [])].filter(Boolean).join(' ')
-  ).join(' | ')
+      const inscriptionText = stoneMatrix.people.map(p =>
+        [p.correctedName, p.geminiData.date_of_birth_verbatim, p.geminiData.date_of_death_verbatim,
+          ...(p.geminiData.kinship_hints || [])].filter(Boolean).join(' ')
+      ).join(' | ')
 
       const { data: stoneData, error: stoneError } = await supabase.from('stones').insert({
         cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
@@ -613,15 +611,9 @@ export default function Home({ session, onMap, onRecent }) {
                             {record.date_of_death_verbatim && <p className="text-gray-300 text-xs">d. {record.date_of_death_verbatim}</p>}
                           </div>
                         </div>
-                        <span className={
-  record.is_occupant ? 'text-green-400 text-xs' : 
-  record.is_mentioned ? 'text-yellow-400 text-xs' : 
-  'text-gray-400 text-xs'
-}>
-  {record.is_occupant ? '⬛ Photographed' : 
-   record.is_mentioned ? '📝 Referenced on stone' : 
-   'Not yet cataloged'}
-</span>
+                        <span className={record.is_photographed ? 'text-green-400 text-xs' : 'text-gray-400 text-xs'}>
+                          {record.is_photographed ? 'Photographed' : 'Not yet cataloged'}
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -680,7 +672,7 @@ export default function Home({ session, onMap, onRecent }) {
                   </div>
                 </div>
               )}
-              {!searchSelected.is_occupant && (
+              {!searchSelected.is_photographed && (
                 <div className="bg-gray-800 border border-gray-600 rounded-lg p-4">
                   <p className="text-gray-300 text-sm mb-3">This stone has not been photographed yet.</p>
                   <label style={{
@@ -868,6 +860,15 @@ export default function Home({ session, onMap, onRecent }) {
         {/* ── PHASE: MATCH ── */}
         {photoPhase === 'match' && stoneMatrix && (
           <>
+            {saving && (
+              <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+                <div className="bg-gray-800 rounded-lg p-6 text-center mx-4">
+                  <p className="text-white text-xl mb-2">⏳ Saving...</p>
+                  <p className="text-gray-400 text-sm">Please wait, do not tap again</p>
+                </div>
+              </div>
+            )}
+
             {gpsStatus && (
               <div className="bg-gray-800 rounded-lg p-3 mb-4 border border-blue-700">
                 <p className="text-blue-400 text-sm">📍 {gpsStatus}</p>
@@ -949,20 +950,20 @@ export default function Home({ session, onMap, onRecent }) {
 
             <div className="flex gap-2 mb-4">
               {stoneMatrix.people[matchingIndex]?.matchStatus === 'matched' ? (
-                <button onClick={nextPerson}
-                  className="flex-1 bg-green-700 hover:bg-green-600 text-white font-bold py-3 rounded-lg">
-                  {matchingIndex + 1 < stoneMatrix.people.length ? 'Next Person →' : '💾 Save Stone'}
+                <button onClick={nextPerson} disabled={saving}
+                  className="flex-1 bg-green-700 hover:bg-green-600 disabled:bg-gray-600 text-white font-bold py-3 rounded-lg">
+                  {saving ? '⏳ Saving...' : matchingIndex + 1 < stoneMatrix.people.length ? 'Next Person →' : '💾 Save Stone'}
                 </button>
               ) : (
                 <>
-                  <button onClick={() => { skipMatch(); nextPerson() }}
-                    className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg text-sm">
-                    Skip — no match
+                  <button onClick={() => { skipMatch(); nextPerson() }} disabled={saving}
+                    className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white py-3 rounded-lg text-sm">
+                    {saving ? '⏳ Saving...' : 'Skip — no match'}
                   </button>
                   {matchingIndex + 1 >= stoneMatrix.people.length && (
                     <button onClick={saveStone} disabled={saving}
-                      className="flex-1 bg-yellow-700 hover:bg-yellow-600 text-white font-bold py-3 rounded-lg text-sm">
-                      {saving ? 'Saving...' : '💾 Save Anyway'}
+                      className="flex-1 bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-600 text-white font-bold py-3 rounded-lg text-sm">
+                      {saving ? '⏳ Saving...' : '💾 Save Anyway'}
                     </button>
                   )}
                 </>
