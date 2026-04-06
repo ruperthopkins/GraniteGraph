@@ -72,7 +72,7 @@ const INVERSE_REL = {
 }
 
 // ── MAIN COMPONENT ───────────────────────────────────────────
-export default function Home({ session, onMap, onRecent }) {
+export default function Home({ session, onMap, onRecent, onAdmin }) {
   // Core mode
   const [mode, setMode] = useState('landing') // landing | photograph | search
 
@@ -588,6 +588,9 @@ export default function Home({ session, onMap, onRecent }) {
       <div className="flex gap-3">
         <button onClick={onMap} className="text-gray-300 text-sm hover:text-white">Map</button>
         <button onClick={onRecent} className="text-gray-300 text-sm hover:text-white">Recent</button>
+        {onAdmin && (
+          <button onClick={onAdmin} className="text-yellow-400 text-sm hover:text-yellow-300">Admin</button>
+        )}
         <button onClick={() => supabase.auth.signOut()} className="text-gray-300 text-sm hover:text-white">Sign Out</button>
       </div>
     </div>

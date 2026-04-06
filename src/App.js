@@ -5,6 +5,8 @@ import Home from './Home'
 import Map from './Map'
 import Recent from './Recent'
 import Search from './Search'
+import AdminHome from './admin/AdminHome'
+import ChurchImport from './admin/ChurchImport'
 
 function App() {
   const [session, setSession] = useState(null)
@@ -107,19 +109,34 @@ function App() {
     )
   }
 
+  const isAdmin = profile?.role === 'admin'
+
   return (
     <div>
       {page === 'search' && <Search onLogin={null} onHome={() => setPage('home')} />}
       {page === 'home' && (
         <Home
-  session={session}
-  profile={profile}
-  onMap={() => setPage('map')}
-  onRecent={() => setPage('recent')}
-/>
+          session={session}
+          profile={profile}
+          onMap={() => setPage('map')}
+          onRecent={() => setPage('recent')}
+          onAdmin={isAdmin ? () => setPage('admin') : null}
+        />
       )}
       {page === 'map' && <Map onBack={() => setPage('home')} />}
       {page === 'recent' && <Recent onBack={() => setPage('home')} />}
+
+      {/* Admin area — only reachable when profile.role === 'admin' */}
+      {page === 'admin' && isAdmin && (
+        <AdminHome
+          profile={profile}
+          onBack={() => setPage('home')}
+          onNavigate={(tool) => setPage('admin_' + tool)}
+        />
+      )}
+      {page === 'admin_import' && isAdmin && (
+        <ChurchImport onBack={() => setPage('admin')} />
+      )}
     </div>
   )
 }
