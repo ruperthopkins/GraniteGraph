@@ -113,7 +113,7 @@ function App() {
   }
 
   const isAdmin = profile?.role === 'admin'
-
+console.log('render — profile:', profile?.role, 'isAdmin:', isAdmin, 'page:', page)
   return (
     <div>
       {page === 'search' && <Search onLogin={null} onHome={() => setPage('home')} />}
