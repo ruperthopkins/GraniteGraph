@@ -125,8 +125,6 @@ function App() {
       )}
       {page === 'map' && <Map onBack={() => setPage('home')} />}
       {page === 'recent' && <Recent onBack={() => setPage('home')} />}
-
-      {/* Admin area — only reachable when profile.role === 'admin' */}
       {page === 'admin' && isAdmin && (
         <AdminHome
           profile={profile}
