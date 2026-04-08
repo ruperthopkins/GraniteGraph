@@ -44,11 +44,12 @@ function App() {
   const fetchProfile = async (userId) => {
     if (fetchingProfile.current) return
     fetchingProfile.current = true
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('volunteer_profiles')
       .select('*')
       .eq('user_id', userId)
       .single()
+    console.log('fetchProfile result:', data, 'error:', error)
     setProfile(data || null)
     setProfileChecked(true)
   }
