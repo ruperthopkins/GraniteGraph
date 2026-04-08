@@ -44,12 +44,12 @@ function App() {
   const fetchProfile = async (userId) => {
     if (fetchingProfile.current) return
     fetchingProfile.current = true
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('volunteer_profiles')
       .select('*')
       .eq('user_id', userId)
       .single()
-    console.log('fetchProfile result:', data, 'error:', error)
+    
     setProfile(data || null)
     setProfileChecked(true)
   }
@@ -111,7 +111,7 @@ function App() {
   }
 
   const isAdmin = profile?.role === 'admin'
-console.log('render — profile:', profile?.role, 'isAdmin:', isAdmin, 'page:', page)
+
   return (
     <div>
       {page === 'search' && <Search onLogin={null} onHome={() => setPage('home')} />}
