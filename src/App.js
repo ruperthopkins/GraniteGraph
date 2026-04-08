@@ -20,15 +20,13 @@ function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log('getSession result:', session)
-      setSession(session)
+     setSession(session)
       setAuthChecked(true)
       if (session) fetchProfile(session.user.id)
       else setProfileChecked(true)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      console.log('onAuthStateChange:', _event, session?.user?.id)
       setSession(session)
       if (session) {
         setPage('home')
