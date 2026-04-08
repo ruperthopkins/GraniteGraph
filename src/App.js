@@ -123,7 +123,7 @@ function App() {
           profile={profile}
           onMap={() => setPage('map')}
           onRecent={() => setPage('recent')}
-          onAdmin={isAdmin ? () => setPage('admin') : null}
+          onAdmin={profile?.role === 'admin' ? () => setPage('admin') : null}
         />
       )}
       {page === 'map' && <Map onBack={() => setPage('home')} />}
