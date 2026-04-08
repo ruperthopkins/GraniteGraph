@@ -72,7 +72,7 @@ const INVERSE_REL = {
 }
 
 // ── MAIN COMPONENT ───────────────────────────────────────────
-export default function Home({ session, onMap, onRecent, onAdmin }) {
+export default function Home({ session, onMap, onRecent }) {
   // Core mode
   const [mode, setMode] = useState('landing') // landing | photograph | search
 
@@ -287,16 +287,49 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     })
   }
 
- const proceedToMatch = () => {
-  if (stoneMatrix?.people?.length > 0) {
-    const firstPerson = stoneMatrix.people[0]
-    setMatchSearchQuery(firstPerson.correctedName)
-    setMatchSearchResults(firstPerson.preSearchResults || [])
-    setMatchSearchAttempted(firstPerson.preSearchResults ? true : false)
+  // ── FIX #1: Strip punctuation/initials for cleaner search seeds ──────────
+  const cleanNameForSearch = (name) => {
+    return name
+      .replace(/\b[A-Z]\.\s*/g, '')      // remove middle initials like "H. "
+      .replace(/\([^)]*\)/g, '')          // remove parenthetical e.g. "(nee Smith)"
+      .replace(/[.,;:'"]/g, '')           // remove stray punctuation
+      .replace(/\s+/g, ' ')              // collapse extra spaces
+      .trim()
   }
-  setMatchingIndex(0)
-  setPhotoPhase('match')
-}
+
+  const proceedToMatch = () => {
+    if (stoneMatrix?.people?.length > 0) {
+      const firstPerson = stoneMatrix.people[0]
+
+      // FIX #3: if volunteer came from Search Records with a pending match,
+      // pre-match person 0 immediately so they never have to search again
+      if (pendingPhotoFor && firstPerson.matchStatus === 'pending') {
+        setStoneMatrix(prev => ({
+          ...prev,
+          people: prev.people.map((p, i) =>
+            i === 0 ? { ...p, matchedRecord: pendingPhotoFor, matchStatus: 'matched' } : p
+          )
+        }))
+        // Move to person 1 if there are more, otherwise index stays 0 (already matched)
+        const nextIndex = stoneMatrix.people.length > 1 ? 1 : 0
+        setMatchingIndex(nextIndex)
+        const next = stoneMatrix.people[nextIndex] || firstPerson
+        const cleaned = cleanNameForSearch(next.correctedName)
+        setMatchSearchQuery(cleaned)
+        setMatchSearchResults(next.preSearchResults || [])
+        setMatchSearchAttempted(next.preSearchResults ? true : false)
+        setPhotoPhase('match')
+        return
+      }
+
+      const cleaned = cleanNameForSearch(firstPerson.correctedName)
+      setMatchSearchQuery(cleaned)
+      setMatchSearchResults(firstPerson.preSearchResults || [])
+      setMatchSearchAttempted(firstPerson.preSearchResults ? true : false)
+    }
+    setMatchingIndex(0)
+    setPhotoPhase('match')
+  }
   // ── MATCH PHASE ──────────────────────────────────────────
   const handleMatchSearch = async (query) => {
     if (!query.trim()) return
@@ -352,7 +385,9 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     if (nextIndex < stoneMatrix.people.length) {
       setMatchingIndex(nextIndex)
       const next = stoneMatrix.people[nextIndex]
-      setMatchSearchQuery(next.correctedName)
+      // FIX #1: clean name before using as search seed
+      const cleaned = cleanNameForSearch(next.correctedName)
+      setMatchSearchQuery(cleaned)
       setMatchSearchResults(next.preSearchResults || [])
       setMatchSearchAttempted(next.preSearchResults ? true : false)
     } else {
@@ -588,9 +623,6 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       <div className="flex gap-3">
         <button onClick={onMap} className="text-gray-300 text-sm hover:text-white">Map</button>
         <button onClick={onRecent} className="text-gray-300 text-sm hover:text-white">Recent</button>
-        {onAdmin && (
-          <button onClick={onAdmin} className="text-yellow-400 text-sm hover:text-yellow-300">Admin</button>
-        )}
         <button onClick={() => supabase.auth.signOut()} className="text-gray-300 text-sm hover:text-white">Sign Out</button>
       </div>
     </div>
@@ -633,7 +665,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                 <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleVolunteerSearch()}
                   placeholder="Last name, First name, or First Last"
-                  className="flex-1 bg-gray-800 border border-gray-600 rounded-lg p-3 text-white placeholder-gray-400 outline-none focus:ring-2 focus:ring-green-500"
+                  className="flex-1 bg-white border-2 border-green-500 rounded-lg p-3 text-gray-900 placeholder-gray-500 outline-none focus:ring-2 focus:ring-green-400 font-medium"
                   autoFocus />
                 <button onClick={() => handleVolunteerSearch()} disabled={searching}
                   className="bg-green-700 hover:bg-green-600 text-white font-bold px-4 rounded-lg">
@@ -811,12 +843,12 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                 {/* Person header */}
                 <p className="text-green-400 text-xs font-bold mb-2">Person {pIndex + 1}</p>
 
-                {/* Corrected name */}
+                {/* Corrected name — FIX #5: high contrast for outdoor use */}
                 <input
                   type="text"
                   value={person.correctedName}
                   onChange={e => updateCorrectedName(pIndex, e.target.value)}
-                  className="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm mb-2 outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full bg-white border-2 border-green-500 rounded p-2 text-gray-900 text-sm mb-2 outline-none focus:ring-2 focus:ring-green-400 placeholder-gray-500 font-medium"
                   placeholder="Full name"
                 />
 
@@ -827,14 +859,38 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                   </p>
                 )}
 
-                {/* Dates */}
-                <div className="flex gap-3 mb-2">
-                  {person.geminiData.date_of_birth_verbatim && (
-                    <p className="text-gray-300 text-xs">b. {person.geminiData.date_of_birth_verbatim}</p>
-                  )}
-                  {person.geminiData.date_of_death_verbatim && (
-                    <p className="text-gray-300 text-xs">d. {person.geminiData.date_of_death_verbatim}</p>
-                  )}
+                {/* Dates — FIX #4: editable fields instead of static text */}
+                <div className="flex gap-2 mb-2">
+                  <div className="flex-1">
+                    <p className="text-gray-400 text-xs mb-1">Born</p>
+                    <input
+                      type="text"
+                      value={person.geminiData.date_of_birth_verbatim || ''}
+                      onChange={e => setStoneMatrix(prev => ({
+                        ...prev,
+                        people: prev.people.map((p, i) => i === pIndex
+                          ? { ...p, geminiData: { ...p.geminiData, date_of_birth_verbatim: e.target.value } }
+                          : p)
+                      }))}
+                      placeholder="Birth date"
+                      className="w-full bg-gray-600 border border-gray-500 rounded p-2 text-white text-xs outline-none focus:ring-2 focus:ring-green-500 placeholder-gray-400"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-gray-400 text-xs mb-1">Died</p>
+                    <input
+                      type="text"
+                      value={person.geminiData.date_of_death_verbatim || ''}
+                      onChange={e => setStoneMatrix(prev => ({
+                        ...prev,
+                        people: prev.people.map((p, i) => i === pIndex
+                          ? { ...p, geminiData: { ...p.geminiData, date_of_death_verbatim: e.target.value } }
+                          : p)
+                      }))}
+                      placeholder="Death date"
+                      className="w-full bg-gray-600 border border-gray-500 rounded p-2 text-white text-xs outline-none focus:ring-2 focus:ring-green-500 placeholder-gray-400"
+                    />
+                  </div>
                 </div>
 
                 {/* Kinship hints from Gemini */}
@@ -950,8 +1006,13 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                     {person.role === 'occupant' ? '⬛ Occupant' : '📝 Mentioned'}
                   </p>
                   <p className="text-white font-bold text-lg">{person.correctedName}</p>
-                  {person.geminiData.date_of_birth_verbatim && <p className="text-gray-300 text-sm">b. {person.geminiData.date_of_birth_verbatim}</p>}
-                  {person.geminiData.date_of_death_verbatim && <p className="text-gray-300 text-sm">d. {person.geminiData.date_of_death_verbatim}</p>}
+                  {/* FIX #4: show current (possibly edited) date values */}
+                  {person.geminiData.date_of_birth_verbatim && (
+                    <p className="text-gray-300 text-sm">b. {person.geminiData.date_of_birth_verbatim}</p>
+                  )}
+                  {person.geminiData.date_of_death_verbatim && (
+                    <p className="text-gray-300 text-sm">d. {person.geminiData.date_of_death_verbatim}</p>
+                  )}
 
                   {person.matchStatus === 'matched' && (
                     <div className="mt-2 bg-green-900 rounded p-2">
@@ -968,6 +1029,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
 
                   {person.matchStatus !== 'matched' && (
                     <>
+                      {/* FIX #5: high contrast search input for outdoor use */}
                       <div className="flex gap-2 mt-3 mb-3">
                         <input
                           type="text"
@@ -975,15 +1037,23 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                           onChange={e => setMatchSearchQuery(e.target.value)}
                           onKeyDown={e => e.key === 'Enter' && handleMatchSearch(matchSearchQuery)}
                           placeholder="Search database..."
-                          className="flex-1 bg-gray-700 border border-gray-600 rounded p-2 text-white text-sm outline-none focus:ring-2 focus:ring-green-500"
+                          className="flex-1 bg-white border-2 border-green-500 rounded p-2 text-gray-900 text-sm outline-none focus:ring-2 focus:ring-green-400 font-medium placeholder-gray-500"
                         />
                         <button onClick={() => handleMatchSearch(matchSearchQuery)} disabled={matchSearching}
-                          className="bg-green-700 hover:bg-green-600 text-white font-bold px-3 rounded text-sm">
-                          {matchSearching ? '...' : 'Search'}
+                          className="bg-green-700 hover:bg-green-600 disabled:bg-gray-600 text-white font-bold px-3 rounded text-sm min-w-[60px]">
+                          {matchSearching ? '⏳' : 'Search'}
                         </button>
                       </div>
 
-                      {matchSearchResults.map(record => (
+                      {/* FIX #2: show searching indicator clearly while in progress */}
+                      {matchSearching && (
+                        <div className="bg-gray-700 rounded p-3 mb-3 text-center">
+                          <p className="text-green-400 text-sm">Searching...</p>
+                        </div>
+                      )}
+
+                      {/* Only show results and skip/save actions when search is complete */}
+                      {!matchSearching && matchSearchResults.map(record => (
                         <div key={record.deceased_id}
                           className={'p-3 rounded-lg mb-2 cursor-pointer ' + (record.is_photographed ? 'bg-gray-700 border border-yellow-600' : 'bg-gray-700')}
                           onClick={() => selectMatch(record)}>
@@ -996,6 +1066,11 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                           </p>
                         </div>
                       ))}
+
+                      {/* FIX #2: no results message only after search fully completes */}
+                      {!matchSearching && matchSearchAttempted && matchSearchResults.length === 0 && (
+                        <p className="text-gray-400 text-sm text-center py-2">No matches found</p>
+                      )}
                     </>
                   )}
                 </div>
@@ -1008,6 +1083,9 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       className="flex-1 bg-green-700 hover:bg-green-600 disabled:bg-gray-600 text-white font-bold py-3 rounded-lg">
       {saving ? '⏳ Saving...' : matchingIndex + 1 < stoneMatrix.people.length ? 'Next Person →' : '💾 Save Stone'}
     </button>
+  ) : matchSearching ? (
+    // FIX #2: never show skip/save while a search is in flight
+    <p className="text-green-400 text-sm py-3">⏳ Searching...</p>
   ) : matchSearchAttempted ? (
     <>
       <button onClick={() => { skipMatch(); nextPerson() }} disabled={saving}
