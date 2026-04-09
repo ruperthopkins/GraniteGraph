@@ -72,9 +72,9 @@ Notable meetings:
 - March 2, 1805: TIMOTHY MILLER and SAMUEL HOPKINS appointed to visit JOSIAH HALLOCK; PHILLIP HALLOCK and JONATHAN HALLOCK appointed to visit NANCY RULIN and her daughter NANCY`
   },
 
-  '1778–1820  Part B  (meetings 1806–1820)': {
+  '1778–1820  Part B1  (1806–1810)': {
     sourceId: SOURCE_ID_CHURCH,
-    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. Church meeting records 1806-1820.
+    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. 1806-1810.
 
 April 11, 1807: HINDRICK HALLOCK joined the church
 
@@ -90,16 +90,21 @@ April 30, 1808: GAETCH (black woman) joined
 June 1, 1810: FANNY PRINCE received and baptized; BETTY wife of LITUS (black man) joined
 July 1, 1810: MRS PHEBE TOOKER wife of LEVI TOOKER joined
 August 4, 1810: NANCY RUGGLES (widow) joined
-November 2, 1811: BETSY HALLOCK wife of JONAS HALLOCK joined
-February 1, 1811: JEREMIAH KINNER returned to fellowship (reinstated)
-March 3, 1810: MRS HALLOCK wife of HALLOCK joined
 
 Officers appointed January 1, 1808:
 - TIMOTHY MILLER: appointed Deacon
 - PHILLIP HALLOCK: appointed Deacon
 - HENDRICKSON W. HALLOCK: appointed Clerk
+- JOHN DAVIS: elected Clerk August 5, 1809`
+  },
 
-August 5, 1809: JOHN DAVIS elected Clerk
+  '1778–1820  Part B2  (1811–1820)': {
+    sourceId: SOURCE_ID_CHURCH,
+    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. 1811-1820.
+
+November 2, 1811: BETSY HALLOCK wife of JONAS HALLOCK joined
+February 1, 1811: JEREMIAH KINNER returned to fellowship (reinstated)
+March 3, 1810: MRS HALLOCK wife of HALLOCK joined
 September 6, 1817: DENCY REYNOR, BETHIAN HALLOCK, CALVIN EATON received into fellowship
 December 6, 1817: NOAH H. GILLET received as member (later ordained minister)
 May 2, 1818: AMELIA (black woman) joined
@@ -107,7 +112,7 @@ February 28, 1818: ABIATHER BROWN joined; BETHIAH WELLS joined
 October 25, 1818: NOAH HALLOCK died (had been pastor 29 years)
 
 Dismissed:
-- HULDAH ROE requested dismissal to Methodist Church (March 5, 1813)
+- HULDAH ROE requested dismissal to Methodist Church March 5, 1813
 
 Excommunicated:
 - NICOLS TERREL excommunicated 1812`
