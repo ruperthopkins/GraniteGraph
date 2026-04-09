@@ -305,6 +305,10 @@ Deaths:
 - November 3, 1838: JEREMIAH KINNER died
 - ABBA SOPHIA CORWIN died April 20, 1838`
   },
+  'Custom text (paste your own)': {
+    sourceId: SOURCE_ID_GENEALOGY,
+    text: ``
+  },
 }
 
 // ── EVENT / RELATIONSHIP COLOURS ────────────────────────────────────────────
@@ -381,10 +385,11 @@ export default function ChurchImport() {
   const [copied, setCopied]       = useState(false)
   const [editId, setEditId]       = useState(null)
   const [editData, setEditData]   = useState(null)
-
+  const [customText, setCustomText] = useState('')
   // ── Extract ────────────────────────────────────────────────────────────────
   const extract = async () => {
     const chunk = CHUNKS[chunkKey]
+    const text = chunkKey === 'Custom text (paste your own)' ? customText : chunk.text
     if (!chunk) return
     setExtracting(true)
     setError(null)
@@ -393,7 +398,7 @@ export default function ChurchImport() {
       const res = await fetch('/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: chunk.text, system: SYSTEM_PROMPT }),
+        body: JSON.stringify({ text, system: SYSTEM_PROMPT }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error.message || data.error)
@@ -506,10 +511,20 @@ export default function ChurchImport() {
               <p style={{ fontSize: 13, color: '#9ca3af', margin: '0 0 12px' }}>
                 Extracts all named people AND relationship pairs (spouses, parents, children).
               </p>
-              <pre style={{ fontSize: 11, fontFamily: 'monospace', color: '#6b7280', background: '#0f172a', padding: 10, borderRadius: 6, maxHeight: 180, overflow: 'auto', whiteSpace: 'pre-wrap', margin: 0 }}>
-                {CHUNKS[chunkKey].text.slice(0, 500)}…
-              </pre>
-            </div>
+              {chunkKey === 'Custom text (paste your own)' ? (
+        <textarea
+          value={customText}
+          onChange={e => setCustomText(e.target.value)}
+          placeholder="Paste genealogy or church record text here..."
+          className="w-full bg-gray-700 border border-gray-600 rounded p-3 text-white text-xs font-mono outline-none focus:ring-2 focus:ring-green-500"
+          rows={10}
+        />
+      ) : (
+        <pre style={{ fontSize: 11, fontFamily: 'monospace', color: '#6b7280', background: '#0f172a', padding: 10, borderRadius: 6, maxHeight: 180, overflow: 'auto', whiteSpace: 'pre-wrap', margin: 0 }}>
+          {CHUNKS[chunkKey].text.slice(0, 500)}…
+        </pre>
+      )}
+      </div>
             <button onClick={extract} disabled={extracting}
               style={btn({ width: '100%', background: extracting ? '#374151' : '#15803d', color: extracting ? '#9ca3af' : '#fff', marginTop: 8 })}>
               {extracting ? 'Extracting people & relationships…' : 'Extract People + Relationships'}
