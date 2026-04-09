@@ -72,14 +72,21 @@ Notable meetings:
 - March 2, 1805: TIMOTHY MILLER and SAMUEL HOPKINS appointed to visit JOSIAH HALLOCK; PHILLIP HALLOCK and JONATHAN HALLOCK appointed to visit NANCY RULIN and her daughter NANCY`
   },
 
-  '1778–1820  Part B1  (1806–1810)': {
+  '1778–1820  Part B1  (1809 reception list)': {
     sourceId: SOURCE_ID_CHURCH,
-    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. 1806-1810.
+    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY.
 
 April 11, 1807: HINDRICK HALLOCK joined the church
 
 Large reception March 4, 1809 — all of the following joined:
 MERRIDAY HAVEN, RICHARD DAVIS (Captain), PHILIP BROWN, JOHN DAVIS, ELISHA DAVIS, EVI SMITH (later excommunicated), JESSE DAVIS, ELISHA PETTA, JOEL NOTON, SAMUEL DAVIS, DAVID ROBBINS, DANIEL DAVIS, WILLIAM PHILLIPS, EBENEZER JONES, GEORGE HOPKINS, ASSENETH ROBBINS, JOEL PETTA, MARY TUCKER, HANNAH WELLS, NANCY NORTON, ELIZABETH BROWN, HANNAH PHILLIPS, SARA PHILLIPS, CLAREAVEA NORTON, CHARLOTTE DAVIS, HANNAH BROWN, MEHEATABLE ALLEBEAN, ELIZABETH DAVIS, ELIZA WOODHULL, MERIA DAVIS, GEORGE DAVIS, WILLIAM HOPKINS, ELIZABETH PHILLIPS, NICOLS TERREL (excommunicated 1812), HENERY CONKLIN, BILLY DAVIS
+
+Note: this is a bulk reception list. No spouse or family relationships are known for these individuals from this record alone. Event type for all is "joined", date is "March 4, 1809".`
+  },
+
+  '1778–1820  Part B2  (1809–1810 other joiners)': {
+    sourceId: SOURCE_ID_CHURCH,
+    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. 1809-1810.
 
 April 1, 1809: MEHEATABLE DAVIS joined
 May 6, 1809: JAMES NORTON, DAVIS NORTON, THOMAS TUCKER, SARA HALLET, RACHEL SMITH, POLLEY HALLOCK joined
