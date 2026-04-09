@@ -245,9 +245,9 @@ Excommunicated:
 - January 20, 1833: DANIEL T. NORTON excommunicated`
   },
 
-  '1829–1839  Part B  (1834–1839)': {
+  '1829–1839  Part B1  (1834–1838)': {
     sourceId: SOURCE_ID_CHURCH,
-    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. 1834-1839.
+    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. 1834-1838.
 
 Excommunicated / fellowship withdrawn:
 - September 19, 1833: GERSHAM BROWN excommunicated
@@ -256,10 +256,10 @@ Excommunicated / fellowship withdrawn:
 - January 25, 1835: CONKLIN DAVIS and wife ELIZABETH DAVIS withdrew themselves
 
 Reinstated:
-- May 11, 1833: SAMUEL DAVIS restored to fellowship; WM HOPKINS restored
-- August 10, 1833: RUTH HALLOCK restored to full fellowship; DAVID ROBBINS restored to full fellowship
+- May 11, 1833: SAMUEL DAVIS restored; WM HOPKINS restored
+- August 10, 1833: RUTH HALLOCK restored; DAVID ROBBINS restored
 
-April 2, 1836 received: FANNY JONES wife of CHARLES S. JONES (by letter from Dutch Reformed Church Tarrytown Westchester County); SAMUEL BROWN; DELIVERANCE BROWN wife of SAML BROWN; JOHN MERIT BROWN
+April 2, 1836 received: FANNY JONES wife of CHARLES S. JONES (by letter from Dutch Reformed Church Tarrytown); SAMUEL BROWN; DELIVERANCE BROWN wife of SAML BROWN; JOHN MERIT BROWN
 
 March 3, 1838: ADELIA wife of NOAH H. JONES received
 March 31, 1838: MEHETABLE wife of CALVIN EATON; ANNE wife of JONATHAN PIKE; SUSAN M. widow of SIMEON DAVIS received
@@ -269,6 +269,15 @@ May 26, 1838: HANNAH H. WOODHULL (by letter), HENRY HALLOCK, JOHN H. WOODHULL, F
 June 2, 1838: MARTHA O. MILLS (now MILLER), BETHIAH HAWKINS (by letter), EDWIN N. MILLER, SYLVESTER R. DAVIS, GEORGE W. BROWN, JAMES HALLOCK son of PHILIP HALLOCK, CALEB H. KING, CATHARINE O. HOPKINS, ELMINA wife of SYLVESTER R. DAVIS joined
 
 August 4, 1838: REBECCA HALLOCK wife of HENDRICK H. HALLOCK, JOANNA BROWN, MARY ANN TOOKER, JANE ANN EATON joined; FANNY PRINCE restored to fellowship
+
+Officers:
+- REV PARSHALL TERRY: Minister/Pastor from 1834
+- REV E. PLATT: Minister/Pastor from 1838`
+  },
+
+  '1829–1839  Part B2  (1839)': {
+    sourceId: SOURCE_ID_CHURCH,
+    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. 1839.
 
 December 1, 1838: HANNAH A. HALLOCK united with the church
 
@@ -280,13 +289,11 @@ June 2, 1839: LAURA C. KINNERS, MARY HOPKINS received
 August 31, 1839: MINEUS LYMAN received
 
 Officers:
-- REV PARSHALL TERRY: Minister/Pastor (from 1834)
-- REV E. PLATT: Minister/Pastor (from 1838)
 - JOEL BROWN: Deacon elected July 6, 1839 (Rocky Point area)
 - CHARLES I. JONES: Deacon elected July 6, 1839 (Drown-meadow area)
 
 Deaths:
-- November 3, 1838: JEREMIAH KINNER died (no meeting held on account of his funeral)
+- November 3, 1838: JEREMIAH KINNER died
 - ABBA SOPHIA CORWIN died April 20, 1838`
   },
 }
