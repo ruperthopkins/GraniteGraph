@@ -154,23 +154,36 @@ Officers:
 - DANIEL DAVIS: Deacon (died before October 3, 1829)`
   },
 
-  '1820–1829  Part B  (1825–1829)': {
+  '1820–1829  Part B1  (1825–1826 large receptions)': {
     sourceId: SOURCE_ID_CHURCH,
-    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. 1825-1829.
+    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY.
 
 Excommunicated:
 - February 5, 1825: MRS BETSEY EDWARDS fellowship withdrawn
 
-Large reception April 8, 1826:
+Large reception April 8, 1826 — all joined:
 JAMES DAVIS, HANNAH R. DAVIS, NOAH ROBBINSON, MARY BREWSTER, MARIA PAYNE, CLARISSA WOOD, LEWIS DAVIS, JAMES OVERTON, MARGARET HALLOCK, ERVERLINE FINCH, ELEANOR TERRY
 
-Large reception May 20, 1826:
+Large reception May 20, 1826 — all joined:
 SARAH ROBBINS, POLLY MILLER, MARIA HALLOCK, ELUISE WELLS, SALLY W. HOMAN, CHARRY TOOKER, ANN DAVIS, CAROLIN MILLER, ELIZA CATHARINE MILLER, SOPHRONIA BROWN, CONKLIN DAVIS, MARIA KINNER, MARY DAVIS, SARAH HOWELL, SARAH HALLOCK, DANIEL R. MILLER, RUTH DAVIS, RICHARD M. WOOD, AUSTIN RAYNOR, CORINNA MILLER, LOUISA HALLOCK, CHARRY BROWN, CATHERINE TYLER, HANNAH SATERLY, HANNAH PETTY, ABBA SOPHIA CORWIN (died April 20, 1838), CHARLES MILLER, WILLIAM M. BROWN, ELIZA DAVIS, ELISA HUDSON, CATHARINE GERARD, GILBERT HOPKINS, POLLY BROWN, HENDRICH H. HALLOCK, ELIZABETH DAVIS, JOEL WOOD, GERSHORN BROWN, SANFORD DAVIS
+
+Note: these are bulk reception lists. No spouse or family relationships are known for these individuals from this record alone.`
+  },
+
+  '1820–1829  Part B2  (1826 other receptions)': {
+    sourceId: SOURCE_ID_CHURCH,
+    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. 1826.
 
 July 15, 1826: ARMINDA BAILEY, SAPPING NORTON, CHARLES T. JONES, JOEL BROWN, MARIA HALLOCK, ROBBIN, DORCAS, MARY, MARTHA SIMON joined
 July 16, 1826: MARIA HOPKINS, ELIZA DAVIS, CAROLINE HALLOCK, CHARITY BAILEY, LUCINDA NORTON joined
 September 23, 1826: TABETHA JONES received
-December 3, 1826: HENRY T. GUNDERSON, MARY ANN GUNDERSON, ABBIGAIL WILSE, ARMINDA BELLOWS, ELEANOR DAVIS joined; SALLY NORTON received by letter from church in Greenfield Connecticut
+December 3, 1826: HENRY T. GUNDERSON, MARY ANN GUNDERSON, ABBIGAIL WILSE, ARMINDA BELLOWS, ELEANOR DAVIS joined; SALLY NORTON received by letter from church in Greenfield Connecticut`
+  },
+
+  '1820–1829  Part B3  (1827–1829)': {
+    sourceId: SOURCE_ID_CHURCH,
+    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. 1827-1829.
+
 February 10, 1827: ISAAC BROWN, CALEB KINNER received
 April 7, 1827: ELISABETH JAYNE received; SALLY MILLER received by letter from Presbyterian church at Huntington
 May 19, 1827: CHARLES ROBINSON, SARAH ANN ROBINSON, AZEAL ROE, MRS ROE wife of AZEL ROE, AMELIA KINNER joined
