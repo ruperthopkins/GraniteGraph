@@ -1,7 +1,5 @@
 // src/admin/ChurchImport.jsx
 // Granite Graph — Church Records & Reference Import Tool
-// Drop in src/admin/ and add a route: <Route path="/admin/import" element={<ChurchImport />} />
-// Requires /api/extract.js in your Vercel api/ folder
 
 import { useState } from 'react'
 
@@ -9,37 +7,48 @@ const SOURCE_ID_CHURCH = '800c5884-d180-42b0-9ca6-4e05c8fd64cb'
 const SOURCE_ID_GENEALOGY = '9cb5c6d4-83b2-4ec6-ae59-72d2d7eb1155'
 const CEMETERY_ID = 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107'
 
-// ── SYSTEM PROMPT ────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are a genealogy extraction assistant for the Granite Graph project — a social network graph of a historic Long Island community (Church of Christ at Old Man's / Mount Sinai, NY). Your job is to extract every named person AND their relationships from church meeting records.
+// ── HELPERS (outside component is fine — no state needed) ────────────────────
+const esc = (s) => (s || '').replace(/'/g, "''")
+const q   = (s) => (s != null && s !== '') ? `'${esc(String(s))}'` : 'NULL'
 
-Return a JSON object with TWO arrays:
+// ── SYSTEM PROMPT ────────────────────────────────────────────────────────────
+const SYSTEM_PROMPT = `You are a genealogy extraction assistant for the Granite Graph project — a social network graph of a historic Long Island community (Church of Christ at Old Man's / Mount Sinai, NY).
+
+Extract every named person AND their relationships. Return a JSON object with TWO arrays:
 
 "people": array of person objects, each with:
-  - "full_name": Title Case (e.g. "Hannah Maria Davis")
+  - "full_name": Title Case (e.g. "Samuel Hopkins")
   - "first_name", "middle_name" (or null), "last_name"
-  - "maiden_name": if mentioned, else null
+  - "maiden_name": birth surname if married woman, else null
   - "gender": "M" or "F" or null
   - "event_type": one of: joined, dismissed, excommunicated, reinstated, baptized, died, officer, mentioned
   - "event_date_verbatim": date as written or null
   - "event_year": integer or null
-  - "notes": any context (wife of X, deacon, colored woman, captain, etc)
+  - "date_of_birth_verbatim": birth date as written (e.g. "Apr. 4, 1744") or null
+  - "date_of_death_verbatim": death date as written (e.g. "Sept. 8, 1807") or null
+  - "date_of_birth_year": birth year as integer or null
+  - "date_of_death_year": death year as integer or null
+  - "notes": context (wife of X, deacon, son of Y and Z, etc)
 
 "relationships": array of relationship objects, each with:
   - "person_a": full name of first person (Title Case)
+  - "person_a_birth_year": integer or null (to disambiguate same names)
   - "person_b": full name of second person (Title Case)
+  - "person_b_birth_year": integer or null
   - "relationship": one of: SPOUSE, PARENT_OF, CHILD_OF, SIBLING_OF
   - "confidence": "high" or "probable"
-  - "evidence": brief note (e.g. "wife of Timothy Miller", "daughter of Samuel and Mariah Hopkins")
+  - "evidence": brief note (e.g. "wife of Samuel Hopkins", "son of Samuel and Dorothy Hopkins")
 
-Rules:
-- Include EVERY named individual, no matter how briefly mentioned
-- For "wife of X" entries → create a SPOUSE relationship between both people; include both as separate people entries
-- For "son/daughter of X and Y" → create PARENT_OF relationships for each parent and a CHILD_OF for the child
-- For bulk reception lists, use that list's date for all members in that list
-- Normalize ALL-CAPS names to Title Case
+Genealogy format rules:
+- "b." = born, "d." = died, "m." = married, "s." = son of, "da." = daughter of
+- "m. 1st ... 2nd ..." = multiple marriages, extract both as separate SPOUSE relationships
+- Generation numbers (1, 2, 3 etc.) identify the person being described
+- Always extract birth and death dates when present — they are critical for disambiguation
+- For married women, maiden_name = their birth surname, last_name = married surname
+- For bulk reception lists with no family info, set event_type to joined and skip relationships
 - Return ONLY valid JSON. No markdown fences. No trailing commas. No comments inside JSON.`
 
-// ── CHUNKS: each PDF split in two so responses stay well under token limit ──
+// ── CHUNKS ───────────────────────────────────────────────────────────────────
 const CHUNKS = {
   '1778–1820  Part A  (records to 1805)': {
     sourceId: SOURCE_ID_CHURCH,
@@ -81,7 +90,7 @@ April 11, 1807: HINDRICK HALLOCK joined the church
 Large reception March 4, 1809 — all of the following joined:
 MERRIDAY HAVEN, RICHARD DAVIS (Captain), PHILIP BROWN, JOHN DAVIS, ELISHA DAVIS, EVI SMITH (later excommunicated), JESSE DAVIS, ELISHA PETTA, JOEL NOTON, SAMUEL DAVIS, DAVID ROBBINS, DANIEL DAVIS, WILLIAM PHILLIPS, EBENEZER JONES, GEORGE HOPKINS, ASSENETH ROBBINS, JOEL PETTA, MARY TUCKER, HANNAH WELLS, NANCY NORTON, ELIZABETH BROWN, HANNAH PHILLIPS, SARA PHILLIPS, CLAREAVEA NORTON, CHARLOTTE DAVIS, HANNAH BROWN, MEHEATABLE ALLEBEAN, ELIZABETH DAVIS, ELIZA WOODHULL, MERIA DAVIS, GEORGE DAVIS, WILLIAM HOPKINS, ELIZABETH PHILLIPS, NICOLS TERREL (excommunicated 1812), HENERY CONKLIN, BILLY DAVIS
 
-Note: this is a bulk reception list. No spouse or family relationships are known for these individuals from this record alone. Event type for all is "joined", date is "March 4, 1809".`
+Note: this is a bulk reception list. No spouse or family relationships are known for these individuals from this record alone. Event type for all is joined, date is March 4, 1809.`
   },
 
   '1778–1820  Part B2  (1809–1810 other joiners)': {
@@ -105,7 +114,7 @@ Officers appointed January 1, 1808:
 - JOHN DAVIS: elected Clerk August 5, 1809`
   },
 
-  '1778–1820  Part B2  (1811–1820)': {
+  '1778–1820  Part B3  (1811–1820)': {
     sourceId: SOURCE_ID_CHURCH,
     text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. 1811-1820.
 
@@ -239,7 +248,7 @@ Dismissed:
 
 Excommunicated:
 - May 15, 1830: ELISHA DAVIS excommunicated
-- May 15, 1830: ABBY HOPKINS cut off from church (daughter, mentioned alongside SAMUEL DAVIS)
+- May 15, 1830: ABBY HOPKINS cut off from church
 - November 12, 1831: JOHN DAVIS excommunicated
 - September 1, 1832: JAMES DAVIS excommunicated
 - January 20, 1833: DANIEL T. NORTON excommunicated`
@@ -281,7 +290,7 @@ August 4, 1838: REBECCA HALLOCK wife of HENDRICK H. HALLOCK, JOANNA BROWN, MARY 
 Officers:
 - REV E. PLATT: Minister/Pastor from 1838
 
-Note: for June 2 1838 list, JAMES HALLOCK is son of PHILIP HALLOCK; ELMINA is spouse of SYLVESTER R. DAVIS.`
+Note: JAMES HALLOCK is son of PHILIP HALLOCK; ELMINA is spouse of SYLVESTER R. DAVIS.`
   },
 
   '1829–1839  Part B2  (1839)': {
@@ -305,13 +314,14 @@ Deaths:
 - November 3, 1838: JEREMIAH KINNER died
 - ABBA SOPHIA CORWIN died April 20, 1838`
   },
+
   'Custom text (paste your own)': {
     sourceId: SOURCE_ID_GENEALOGY,
     text: ``
   },
 }
 
-// ── EVENT / RELATIONSHIP COLOURS ────────────────────────────────────────────
+// ── EVENT / RELATIONSHIP COLOURS ─────────────────────────────────────────────
 const EC = {
   joined: '#15803d', dismissed: '#b45309', excommunicated: '#b91c1c',
   reinstated: '#0369a1', baptized: '#6d28d9', died: '#374151',
@@ -321,76 +331,27 @@ const RC = {
   SPOUSE: '#15803d', PARENT_OF: '#0369a1', CHILD_OF: '#6d28d9', SIBLING_OF: '#b45309',
 }
 
-// ── HELPERS ──────────────────────────────────────────────────────────────────
-const esc = (s) => (s || '').replace(/'/g, "''")
-const q   = (s) => (s != null && s !== '') ? `'${esc(String(s))}'` : 'NULL'
-
-function genSQL(chunkKey, result) {
-  const chunk = CHUNKS[chunkKey]
-  const srcId = chunk.sourceId
-
-  const peopleRows = result.people
-    .filter(p => p._keep)
-    .map(p =>
-      `  (${q(p.first_name)}, ${q(p.middle_name)}, ${q(p.last_name)}, ${q(p.maiden_name)}, ` +
-      `${q(p.gender)}, '${CEMETERY_ID}', '${srcId}', ` +
-      `${q(p.event_type)}, ${q(p.event_date_verbatim)}, ${p.event_year || 'NULL'}, ${q(p.notes)})`
-    )
-
-  const relComments = result.relationships
-    .filter(r => r._keep)
-    .map(r => `-- ${r.person_a}  ${r.relationship}  ${r.person_b}  [${r.confidence}]  ${r.evidence || ''}`)
-
-  return [
-    `-- Granite Graph Church Records — ${chunkKey}`,
-    `-- Generated ${new Date().toISOString().split('T')[0]}`,
-    `-- ${result.people.filter(p => p._keep).length} people, ${result.relationships.filter(r => r._keep).length} relationships`,
-    '',
-    '-- STEP 1: Run this migration once (add columns if they do not exist yet)',
-    'ALTER TABLE deceased',
-    '  ADD COLUMN IF NOT EXISTS source_id uuid,',
-    '  ADD COLUMN IF NOT EXISTS church_event_type text,',
-    '  ADD COLUMN IF NOT EXISTS church_event_date_verbatim text,',
-    '  ADD COLUMN IF NOT EXISTS church_event_year integer,',
-    '  ADD COLUMN IF NOT EXISTS notes text;',
-    '',
-    '-- STEP 2: Insert people',
-    'INSERT INTO deceased',
-    '  (first_name, middle_name, last_name, maiden_name, gender, cemetery_id, source_id,',
-    '   church_event_type, church_event_date_verbatim, church_event_year, notes)',
-    'VALUES',
-    peopleRows.join(',\n'),
-    'ON CONFLICT DO NOTHING;',
-    '',
-    '-- STEP 3: Relationship pairs (use these to populate kinship table after matching deceased_ids)',
-    '-- INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence)',
-    '-- VALUES (...);',
-    '',
-    ...relComments,
-    '',
-    `-- Verify: SELECT COUNT(*) FROM deceased WHERE source_id = '${srcId}';`,
-  ].join('\n')
-}
-
-// ── COMPONENT ────────────────────────────────────────────────────────────────
-export default function ChurchImport() {
-  const [step, setStep]           = useState('select')   // select | extract | review | sql
-  const [chunkKey, setChunkKey]   = useState('')
-  const [extracting, setExtracting] = useState(false)
-  const [result, setResult]       = useState(null)       // { people[], relationships[] }
-  const [error, setError]         = useState(null)
-  const [tab, setTab]             = useState('people')   // people | rels
-  const [filter, setFilter]       = useState('')
-  const [filterType, setFilterType] = useState('all')
-  const [copied, setCopied]       = useState(false)
-  const [editId, setEditId]       = useState(null)
-  const [editData, setEditData]   = useState(null)
+// ── COMPONENT ─────────────────────────────────────────────────────────────────
+export default function ChurchImport({ onBack }) {
+  const [step, setStep]             = useState('select')
+  const [chunkKey, setChunkKey]     = useState('')
   const [customText, setCustomText] = useState('')
+  const [extracting, setExtracting] = useState(false)
+  const [result, setResult]         = useState(null)
+  const [error, setError]           = useState(null)
+  const [tab, setTab]               = useState('people')
+  const [filter, setFilter]         = useState('')
+  const [filterType, setFilterType] = useState('all')
+  const [copied, setCopied]         = useState(false)
+  const [editId, setEditId]         = useState(null)
+  const [editData, setEditData]     = useState(null)
+
   // ── Extract ────────────────────────────────────────────────────────────────
   const extract = async () => {
     const chunk = CHUNKS[chunkKey]
-    const text = chunkKey === 'Custom text (paste your own)' ? customText : chunk.text
     if (!chunk) return
+    const textToSend = chunkKey === 'Custom text (paste your own)' ? customText : chunk.text
+    if (!textToSend.trim()) return
     setExtracting(true)
     setError(null)
     setResult(null)
@@ -398,7 +359,7 @@ export default function ChurchImport() {
       const res = await fetch('/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, system: SYSTEM_PROMPT }),
+        body: JSON.stringify({ text: textToSend, system: SYSTEM_PROMPT }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error.message || data.error)
@@ -427,6 +388,70 @@ export default function ChurchImport() {
     setEditId(null); setEditData(null)
   }
 
+  // ── SQL generation ─────────────────────────────────────────────────────────
+  const genSQL = () => {
+    if (!result) return ''
+    const chunk = CHUNKS[chunkKey]
+    const srcId = chunk.sourceId
+
+    const peopleRows = result.people.filter(p => p._keep).map(p =>
+      `  (${q(p.first_name)}, ${q(p.middle_name)}, ${q(p.last_name)}, ${q(p.maiden_name)}, ` +
+      `${q(p.gender)}, '${CEMETERY_ID}', '${srcId}', ` +
+      `${q(p.event_type)}, ${q(p.event_date_verbatim)}, ${p.event_year || 'NULL'}, ` +
+      `${q(p.date_of_birth_verbatim)}, ${q(p.date_of_death_verbatim)}, ` +
+      `${p.date_of_birth_year || 'NULL'}, ${p.date_of_death_year || 'NULL'}, ${q(p.notes)})`
+    )
+
+    const kinshipRows = result.relationships.filter(r => r._keep).map(r => {
+      const nameParts = (name) => {
+        const parts = (name || '').trim().split(' ')
+        return { first: parts[0], last: parts[parts.length - 1] }
+      }
+      const a = nameParts(r.person_a)
+      const b = nameParts(r.person_b)
+      const aYear = r.person_a_birth_year
+        ? `AND date_of_birth_year = ${r.person_a_birth_year}` : ''
+      const bYear = r.person_b_birth_year
+        ? `AND date_of_birth_year = ${r.person_b_birth_year}` : ''
+      return (
+        `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id)\n` +
+        `SELECT a.deceased_id, b.deceased_id, '${r.relationship.toLowerCase()}', 'genealogy_record', '${r.confidence}', ${q(r.evidence)}, '${srcId}'\n` +
+        `FROM deceased a, deceased b\n` +
+        `WHERE a.first_name ILIKE '${esc(a.first)}' AND a.last_name ILIKE '${esc(a.last)}' ${aYear}\n` +
+        `  AND b.first_name ILIKE '${esc(b.first)}' AND b.last_name ILIKE '${esc(b.last)}' ${bYear}\n` +
+        `ON CONFLICT DO NOTHING;`
+      )
+    })
+
+    return [
+      `-- Granite Graph Import — ${chunkKey}`,
+      `-- Generated ${new Date().toISOString().split('T')[0]}`,
+      `-- ${result.people.filter(p => p._keep).length} people, ${result.relationships.filter(r => r._keep).length} relationships`,
+      ``,
+      `-- STEP 1: Migration (run once)`,
+      `ALTER TABLE deceased`,
+      `  ADD COLUMN IF NOT EXISTS date_of_birth_year integer,`,
+      `  ADD COLUMN IF NOT EXISTS date_of_death_year integer;`,
+      ``,
+      `-- STEP 2: Insert people`,
+      `INSERT INTO deceased`,
+      `  (first_name, middle_name, last_name, maiden_name, gender, cemetery_id, source_id,`,
+      `   church_event_type, church_event_date_verbatim, church_event_year,`,
+      `   date_of_birth_verbatim, date_of_death_verbatim, date_of_birth_year, date_of_death_year, notes)`,
+      `VALUES`,
+      peopleRows.join(',\n'),
+      `ON CONFLICT DO NOTHING;`,
+      ``,
+      `-- STEP 3: Insert kinship relationships`,
+      `-- Review carefully — duplicate names may match wrong person without birth year`,
+      ...kinshipRows,
+      ``,
+      `-- Verify:`,
+      `SELECT COUNT(*) FROM deceased WHERE source_id = '${srcId}';`,
+      `SELECT COUNT(*) FROM kinship WHERE source_id = '${srcId}';`,
+    ].join('\n')
+  }
+
   // ── Derived ────────────────────────────────────────────────────────────────
   const keptPeople = result ? result.people.filter(p => p._keep).length : 0
   const keptRels   = result ? result.relationships.filter(r => r._keep).length : 0
@@ -445,18 +470,9 @@ export default function ChurchImport() {
   ) : []
 
   // ── Shared styles ──────────────────────────────────────────────────────────
-  const card = {
-    background: '#1f2937', border: '1px solid #374151',
-    borderRadius: 8, padding: '12px 14px', marginBottom: 8,
-  }
-  const btn = (extra = {}) => ({
-    padding: '10px 14px', borderRadius: 6, cursor: 'pointer',
-    fontWeight: 600, fontSize: 13, border: 'none', ...extra,
-  })
-  const badge = (color) => ({
-    fontSize: 11, padding: '2px 8px', borderRadius: 99,
-    background: color + '22', color, fontWeight: 600,
-  })
+  const card = { background: '#1f2937', border: '1px solid #374151', borderRadius: 8, padding: '12px 14px', marginBottom: 8 }
+  const btn  = (extra = {}) => ({ padding: '10px 14px', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13, border: 'none', ...extra })
+  const badge = (color) => ({ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: color + '22', color, fontWeight: 600 })
 
   // ── RENDER ─────────────────────────────────────────────────────────────────
   return (
@@ -464,67 +480,60 @@ export default function ChurchImport() {
       <div style={{ maxWidth: 720, margin: '0 auto' }}>
 
         {/* Header */}
-        <div style={{ marginBottom: 24 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#34d399', margin: '0 0 4px' }}>
-            Granite Graph — Church Records Import
-          </h1>
-          <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
-            Extract people &amp; relationships from historical church meeting records
-          </p>
+        <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h1 style={{ fontSize: 20, fontWeight: 700, color: '#34d399', margin: '0 0 4px' }}>Church Records Import</h1>
+            <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Extract people &amp; relationships from historical records</p>
+          </div>
+          {onBack && (
+            <button onClick={onBack} style={btn({ background: 'transparent', border: '1px solid #374151', color: '#9ca3af' })}>
+              ← Admin
+            </button>
+          )}
         </div>
 
         {/* ── SELECT ── */}
         {step === 'select' && (
           <div>
             <p style={{ color: '#9ca3af', fontSize: 13, marginBottom: 16 }}>
-              Each PDF is split into two chunks to stay well within the token limit. Extract all 6 chunks, then run the SQL in Supabase.
+              Select a chunk to extract. Large PDFs are split into smaller pieces to stay within token limits.
             </p>
             {Object.keys(CHUNKS).map(key => (
-              <div key={key} onClick={() => { setChunkKey(key); setStep('extract'); setResult(null); setError(null) }}
+              <div key={key} onClick={() => { setChunkKey(key); setStep('extract'); setResult(null); setError(null); setCustomText('') }}
                 style={{ ...card, cursor: 'pointer' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={badge('#34d399')}>{CHUNKS[key].sourceId === SOURCE_ID_CHURCH ? 'Church' : 'Genealogy'}</span>
+                  <span style={badge(CHUNKS[key].sourceId === SOURCE_ID_CHURCH ? '#34d399' : '#60a5fa')}>
+                    {CHUNKS[key].sourceId === SOURCE_ID_CHURCH ? 'Church' : 'Genealogy'}
+                  </span>
                   <span style={{ fontWeight: 600, fontSize: 14 }}>{key}</span>
                 </div>
               </div>
             ))}
-            <div style={{ ...card, marginTop: 24, background: '#0f172a' }}>
-              <p style={{ fontWeight: 600, fontSize: 13, margin: '0 0 6px', color: '#94a3b8' }}>Source IDs</p>
-              <p style={{ fontSize: 11, fontFamily: 'monospace', color: '#64748b', margin: '0 0 3px' }}>
-                Church records: {SOURCE_ID_CHURCH}
-              </p>
-              <p style={{ fontSize: 11, fontFamily: 'monospace', color: '#64748b', margin: 0 }}>
-                Shelter Island Genealogy: {SOURCE_ID_GENEALOGY}
-              </p>
-            </div>
           </div>
         )}
 
         {/* ── EXTRACT ── */}
         {step === 'extract' && (
           <div>
-            <button onClick={() => setStep('select')} style={btn({ background: 'transparent', color: '#9ca3af', padding: '0 0 16px' })}>
-              ← Back
-            </button>
+            <button onClick={() => setStep('select')} style={btn({ background: 'none', border: 'none', color: '#9ca3af', padding: '0 0 16px' })}>← Back</button>
             <div style={card}>
               <p style={{ fontWeight: 600, fontSize: 15, margin: '0 0 6px', color: '#f9fafb' }}>{chunkKey}</p>
               <p style={{ fontSize: 13, color: '#9ca3af', margin: '0 0 12px' }}>
                 Extracts all named people AND relationship pairs (spouses, parents, children).
               </p>
               {chunkKey === 'Custom text (paste your own)' ? (
-        <textarea
-          value={customText}
-          onChange={e => setCustomText(e.target.value)}
-          placeholder="Paste genealogy or church record text here..."
-          className="w-full bg-gray-700 border border-gray-600 rounded p-3 text-white text-xs font-mono outline-none focus:ring-2 focus:ring-green-500"
-          rows={10}
-        />
-      ) : (
-        <pre style={{ fontSize: 11, fontFamily: 'monospace', color: '#6b7280', background: '#0f172a', padding: 10, borderRadius: 6, maxHeight: 180, overflow: 'auto', whiteSpace: 'pre-wrap', margin: 0 }}>
-          {CHUNKS[chunkKey].text.slice(0, 500)}…
-        </pre>
-      )}
-      </div>
+                <textarea
+                  value={customText}
+                  onChange={e => setCustomText(e.target.value)}
+                  placeholder="Paste genealogy or church record text here..."
+                  style={{ width: '100%', minHeight: 200, fontSize: 12, fontFamily: 'monospace', padding: 10, background: '#0f172a', border: '1px solid #374151', borderRadius: 6, color: '#f9fafb', boxSizing: 'border-box', resize: 'vertical' }}
+                />
+              ) : (
+                <pre style={{ fontSize: 11, fontFamily: 'monospace', color: '#6b7280', background: '#0f172a', padding: 10, borderRadius: 6, maxHeight: 180, overflow: 'auto', whiteSpace: 'pre-wrap', margin: 0 }}>
+                  {CHUNKS[chunkKey].text.slice(0, 500)}…
+                </pre>
+              )}
+            </div>
             <button onClick={extract} disabled={extracting}
               style={btn({ width: '100%', background: extracting ? '#374151' : '#15803d', color: extracting ? '#9ca3af' : '#fff', marginTop: 8 })}>
               {extracting ? 'Extracting people & relationships…' : 'Extract People + Relationships'}
@@ -537,17 +546,12 @@ export default function ChurchImport() {
         {step === 'review' && result && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <button onClick={() => setStep('extract')} style={btn({ background: 'transparent', color: '#9ca3af', padding: 0 })}>← Re-extract</button>
+              <button onClick={() => setStep('extract')} style={btn({ background: 'none', border: 'none', color: '#9ca3af', padding: 0 })}>← Re-extract</button>
               <span style={{ fontSize: 13, color: '#6b7280' }}>{keptPeople} people · {keptRels} rels selected</span>
             </div>
 
-            {/* Stats */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
-              {[
-                { l: 'People extracted', v: result.people.length },
-                { l: 'Relationships', v: result.relationships.length },
-                { l: 'For import', v: `${keptPeople}p / ${keptRels}r` },
-              ].map(m => (
+              {[{ l: 'People', v: result.people.length }, { l: 'Relationships', v: result.relationships.length }, { l: 'For import', v: `${keptPeople}p / ${keptRels}r` }].map(m => (
                 <div key={m.l} style={{ background: '#1f2937', borderRadius: 6, padding: '10px 12px' }}>
                   <p style={{ fontSize: 11, color: '#6b7280', margin: '0 0 3px' }}>{m.l}</p>
                   <p style={{ fontSize: 18, fontWeight: 700, margin: 0, color: '#f9fafb' }}>{m.v}</p>
@@ -555,8 +559,7 @@ export default function ChurchImport() {
               ))}
             </div>
 
-            {/* Tabs */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
               {['people', 'rels'].map(t => (
                 <button key={t} onClick={() => setTab(t)}
                   style={btn({ background: tab === t ? '#374151' : 'transparent', color: tab === t ? '#f9fafb' : '#6b7280', border: '1px solid ' + (tab === t ? '#4b5563' : 'transparent'), fontSize: 13 })}>
@@ -565,7 +568,6 @@ export default function ChurchImport() {
               ))}
             </div>
 
-            {/* Filter row */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
               <input placeholder='Filter by name…' value={filter} onChange={e => setFilter(e.target.value)}
                 style={{ flex: 1, background: '#374151', border: '1px solid #4b5563', borderRadius: 6, padding: '8px 10px', color: '#f9fafb', fontSize: 13 }} />
@@ -579,10 +581,9 @@ export default function ChurchImport() {
             </div>
 
             <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
-              {tab === 'people' ? filteredPeople.length : filteredRels.length} shown — uncheck to exclude from import
+              {tab === 'people' ? filteredPeople.length : filteredRels.length} shown — uncheck to exclude
             </p>
 
-            {/* People list */}
             {tab === 'people' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 460, overflowY: 'auto' }}>
                 {filteredPeople.map(person => (
@@ -607,9 +608,14 @@ export default function ChurchImport() {
                             ))}
                           </select>
                         </div>
-                        <input value={editData.event_date_verbatim || ''} placeholder='Date verbatim'
-                          onChange={e => setEditData(p => ({ ...p, event_date_verbatim: e.target.value }))}
-                          style={{ background: '#374151', border: '1px solid #4b5563', borderRadius: 4, padding: '6px 8px', color: '#f9fafb', fontSize: 12 }} />
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                          <input value={editData.date_of_birth_verbatim || ''} placeholder='Birth date'
+                            onChange={e => setEditData(p => ({ ...p, date_of_birth_verbatim: e.target.value }))}
+                            style={{ background: '#374151', border: '1px solid #4b5563', borderRadius: 4, padding: '6px 8px', color: '#f9fafb', fontSize: 12 }} />
+                          <input value={editData.date_of_death_verbatim || ''} placeholder='Death date'
+                            onChange={e => setEditData(p => ({ ...p, date_of_death_verbatim: e.target.value }))}
+                            style={{ background: '#374151', border: '1px solid #4b5563', borderRadius: 4, padding: '6px 8px', color: '#f9fafb', fontSize: 12 }} />
+                        </div>
                         <input value={editData.notes || ''} placeholder='Notes'
                           onChange={e => setEditData(p => ({ ...p, notes: e.target.value }))}
                           style={{ background: '#374151', border: '1px solid #4b5563', borderRadius: 4, padding: '6px 8px', color: '#f9fafb', fontSize: 12 }} />
@@ -628,13 +634,13 @@ export default function ChurchImport() {
                             {person.event_type && <span style={badge(EC[person.event_type] || '#9ca3af')}>{person.event_type}</span>}
                             {person.gender && <span style={{ fontSize: 11, color: '#6b7280' }}>{person.gender}</span>}
                           </div>
-                          {person.event_date_verbatim && <p style={{ fontSize: 12, color: '#9ca3af', margin: '2px 0 0' }}>{person.event_date_verbatim}</p>}
+                          {person.date_of_birth_verbatim && <p style={{ fontSize: 12, color: '#9ca3af', margin: '2px 0 0' }}>b. {person.date_of_birth_verbatim}</p>}
+                          {person.date_of_death_verbatim && <p style={{ fontSize: 12, color: '#9ca3af', margin: '2px 0 0' }}>d. {person.date_of_death_verbatim}</p>}
+                          {person.event_date_verbatim && <p style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 0' }}>{person.event_date_verbatim}</p>}
                           {person.notes && <p style={{ fontSize: 12, color: '#9ca3af', margin: '2px 0 0' }}>{person.notes}</p>}
                         </div>
                         <button onClick={() => startEdit(person)}
-                          style={btn({ fontSize: 11, padding: '3px 8px', background: 'transparent', border: '1px solid #374151', color: '#6b7280' })}>
-                          Edit
-                        </button>
+                          style={btn({ fontSize: 11, padding: '3px 8px', background: 'transparent', border: '1px solid #374151', color: '#6b7280' })}>Edit</button>
                       </div>
                     )}
                   </div>
@@ -642,7 +648,6 @@ export default function ChurchImport() {
               </div>
             )}
 
-            {/* Relationships list */}
             {tab === 'rels' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 460, overflowY: 'auto' }}>
                 {filteredRels.map(rel => (
@@ -652,8 +657,10 @@ export default function ChurchImport() {
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                           <span style={{ fontWeight: 600, fontSize: 14 }}>{rel.person_a}</span>
+                          {rel.person_a_birth_year && <span style={{ fontSize: 11, color: '#6b7280' }}>b.{rel.person_a_birth_year}</span>}
                           <span style={badge(RC[rel.relationship] || '#9ca3af')}>{rel.relationship}</span>
                           <span style={{ fontWeight: 600, fontSize: 14 }}>{rel.person_b}</span>
+                          {rel.person_b_birth_year && <span style={{ fontSize: 11, color: '#6b7280' }}>b.{rel.person_b_birth_year}</span>}
                         </div>
                         <div style={{ display: 'flex', gap: 10, marginTop: 3 }}>
                           <span style={{ fontSize: 11, color: '#6b7280' }}>{rel.confidence}</span>
@@ -676,31 +683,25 @@ export default function ChurchImport() {
         {/* ── SQL ── */}
         {step === 'sql' && result && (
           <div>
-            <button onClick={() => setStep('review')} style={btn({ background: 'transparent', color: '#9ca3af', padding: '0 0 16px' })}>
-              ← Back to review
-            </button>
+            <button onClick={() => setStep('review')} style={btn({ background: 'none', border: 'none', color: '#9ca3af', padding: '0 0 16px' })}>← Back to review</button>
             <div style={{ ...card, background: '#0f172a', marginBottom: 16 }}>
               <p style={{ fontWeight: 600, fontSize: 14, margin: '0 0 8px', color: '#94a3b8' }}>Workflow</p>
               <ol style={{ fontSize: 13, color: '#6b7280', margin: 0, paddingLeft: 20, lineHeight: 2 }}>
                 <li>Run the migration block once in Supabase SQL editor</li>
-                <li>Run the INSERT for this chunk, repeat for all 6 chunks</li>
-                <li>The relationship comments at the bottom show the pairs to add to <code>kinship</code> after you match deceased_ids</li>
-                <li>For Shelter Island Genealogy use the same tool — source_id is already set per chunk</li>
+                <li>Run the INSERT people block</li>
+                <li>Review the kinship INSERTs carefully — duplicate names may need birth years to disambiguate</li>
+                <li>Run the kinship INSERTs</li>
               </ol>
             </div>
-            <pre style={{
-              fontSize: 11, fontFamily: 'monospace', background: '#0f172a', padding: 14,
-              borderRadius: 8, overflow: 'auto', maxHeight: 420, color: '#d1d5db',
-              border: '1px solid #1f2937', whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '0 0 12px',
-            }}>
-              {genSQL(chunkKey, result)}
+            <pre style={{ fontSize: 11, fontFamily: 'monospace', background: '#0f172a', padding: 14, borderRadius: 8, overflow: 'auto', maxHeight: 420, color: '#d1d5db', border: '1px solid #1f2937', whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '0 0 12px' }}>
+              {genSQL()}
             </pre>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => { navigator.clipboard.writeText(genSQL(chunkKey, result)); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+              <button onClick={() => { navigator.clipboard.writeText(genSQL()); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
                 style={btn({ flex: 1, background: copied ? '#15803d' : '#1f2937', border: '1px solid #374151', color: copied ? '#fff' : '#f9fafb' })}>
                 {copied ? 'Copied!' : 'Copy SQL'}
               </button>
-              <button onClick={() => { setStep('select'); setResult(null); setChunkKey('') }}
+              <button onClick={() => { setStep('select'); setResult(null); setChunkKey(''); setCustomText('') }}
                 style={btn({ background: 'transparent', border: '1px solid #374151', color: '#6b7280' })}>
                 Next chunk
               </button>
