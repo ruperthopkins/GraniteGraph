@@ -245,9 +245,9 @@ Excommunicated:
 - January 20, 1833: DANIEL T. NORTON excommunicated`
   },
 
-  '1829–1839  Part B1  (1834–1838)': {
+  '1829–1839  Part B1a  (1834–1837)': {
     sourceId: SOURCE_ID_CHURCH,
-    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. 1834-1838.
+    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. 1834-1837.
 
 Excommunicated / fellowship withdrawn:
 - September 19, 1833: GERSHAM BROWN excommunicated
@@ -261,6 +261,14 @@ Reinstated:
 
 April 2, 1836 received: FANNY JONES wife of CHARLES S. JONES (by letter from Dutch Reformed Church Tarrytown); SAMUEL BROWN; DELIVERANCE BROWN wife of SAML BROWN; JOHN MERIT BROWN
 
+Officers:
+- REV PARSHALL TERRY: Minister/Pastor from 1834`
+  },
+
+  '1829–1839  Part B1b  (1838 receptions)': {
+    sourceId: SOURCE_ID_CHURCH,
+    text: `Church of Christ at Old Man's (Mount Sinai), Long Island, NY. 1838 receptions.
+
 March 3, 1838: ADELIA wife of NOAH H. JONES received
 March 31, 1838: MEHETABLE wife of CALVIN EATON; ANNE wife of JONATHAN PIKE; SUSAN M. widow of SIMEON DAVIS received
 
@@ -271,8 +279,9 @@ June 2, 1838: MARTHA O. MILLS (now MILLER), BETHIAH HAWKINS (by letter), EDWIN N
 August 4, 1838: REBECCA HALLOCK wife of HENDRICK H. HALLOCK, JOANNA BROWN, MARY ANN TOOKER, JANE ANN EATON joined; FANNY PRINCE restored to fellowship
 
 Officers:
-- REV PARSHALL TERRY: Minister/Pastor from 1834
-- REV E. PLATT: Minister/Pastor from 1838`
+- REV E. PLATT: Minister/Pastor from 1838
+
+Note: for June 2 1838 list, JAMES HALLOCK is son of PHILIP HALLOCK; ELMINA is spouse of SYLVESTER R. DAVIS.`
   },
 
   '1829–1839  Part B2  (1839)': {
