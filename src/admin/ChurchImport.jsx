@@ -410,9 +410,9 @@ export default function ChurchImport({ onBack }) {
       const a = nameParts(r.person_a)
       const b = nameParts(r.person_b)
       const aYear = r.person_a_birth_year
-        ? `AND date_of_birth_year = ${r.person_a_birth_year}` : ''
+        ? `AND a.date_of_birth_year = ${r.person_a_birth_year}` : ''
       const bYear = r.person_b_birth_year
-        ? `AND date_of_birth_year = ${r.person_b_birth_year}` : ''
+        ? `AND b.date_of_birth_year = ${r.person_b_birth_year}` : ''
       return (
         `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id)\n` +
         `SELECT a.deceased_id, b.deceased_id, '${r.relationship.toLowerCase()}', 'genealogy_record', '${r.confidence}', ${q(r.evidence)}, '${srcId}'\n` +
