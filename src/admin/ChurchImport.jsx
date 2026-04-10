@@ -415,7 +415,7 @@ export default function ChurchImport({ onBack }) {
         ? `AND b.date_of_birth_year = ${r.person_b_birth_year}` : ''
       return (
         `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id)\n` +
-        `SELECT a.deceased_id, b.deceased_id, '${r.relationship.toLowerCase()}', 'genealogy_record', '${r.confidence}', ${q(r.evidence)}, '${srcId}'\n` +
+        `SELECT a.deceased_id, b.deceased_id, '${r.relationship.toLowerCase()}', 'genealogy_record', '${r.confidence === 'high' ? 'confirmed' : 'probable'}', ${q(r.evidence)}, '${srcId}'\n` +
         `FROM deceased a, deceased b\n` +
         `WHERE a.first_name ILIKE '${esc(a.first)}' AND a.last_name ILIKE '${esc(a.last)}' ${aYear}\n` +
         `  AND b.first_name ILIKE '${esc(b.first)}' AND b.last_name ILIKE '${esc(b.last)}' ${bYear}\n` +
