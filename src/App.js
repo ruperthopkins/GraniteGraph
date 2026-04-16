@@ -7,6 +7,7 @@ import Recent from './Recent'
 import Search from './Search'
 import AdminHome from './admin/AdminHome'
 import ChurchImport from './admin/ChurchImport'
+import PersonView from './admin/PersonView'
 
 function App() {
   const [session, setSession] = useState(null)
@@ -135,6 +136,9 @@ function App() {
       )}
       {page === 'admin_import' && isAdmin && (
         <ChurchImport onBack={() => setPage('admin')} />
+      )}
+      {page === 'admin_review' && isAdmin && (
+        <PersonView onBack={() => setPage('admin')} />
       )}
     </div>
   )

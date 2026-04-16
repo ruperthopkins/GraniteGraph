@@ -11,12 +11,12 @@ export default function AdminHome({ profile, onNavigate, onBack }) {
       status: 'active',
     },
     {
-      id: 'review',
-      icon: '📷',
-      title: 'Review Field Submissions',
-      description: 'Review and curate photos and matches submitted by volunteers',
-      status: 'coming_soon',
-    },
+  id: 'review',
+  icon: '🔍',
+  title: 'Person Research & QA',
+  description: 'Search, review and curate people, relationships and gravestone records',
+  status: 'active',
+},
     {
       id: 'inscriptions',
       icon: '🔍',
