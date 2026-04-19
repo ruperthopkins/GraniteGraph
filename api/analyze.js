@@ -26,6 +26,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'No image provided' })
   }
 
+  if (!process.env.GEMINI_KEY) {
+    return res.status(500).json({ error: 'GEMINI_KEY not configured' })
+  }
+
   try {
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_KEY}`,
@@ -46,6 +50,11 @@ export default async function handler(req, res) {
       }
     )
 
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      console.error('Gemini HTTP error:', response.status, JSON.stringify(errData))
+      return res.status(response.status).json({ error: errData.error?.message || 'Gemini API error', details: errData })
+    }
     const data = await response.json()
     return res.status(200).json(data)
   } catch (err) {

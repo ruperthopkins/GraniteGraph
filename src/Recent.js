@@ -78,9 +78,11 @@ export default function Recent({ onBack }) {
       if (sError) throw sError
 
       // Log the undo
+      const { data: { user } } = await supabase.auth.getUser()
       await supabase
         .from('activity_log')
         .insert({
+          user_id: user?.id,
           action: 'match_undone',
           entity_type: 'stone_deceased',
           entity_id: stoneId,

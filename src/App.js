@@ -45,12 +45,15 @@ function App() {
   const fetchProfile = async (userId) => {
     if (fetchingProfile.current) return
     fetchingProfile.current = true
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('volunteer_profiles')
       .select('*')
       .eq('user_id', userId)
       .single()
-    
+
+    if (error && error.code !== 'PGRST116') {
+      console.error('Error fetching profile:', error)
+    }
     setProfile(data || null)
     setProfileChecked(true)
   }
@@ -60,12 +63,12 @@ function App() {
     setSavingProfile(true)
     const { data, error } = await supabase
       .from('volunteer_profiles')
-      .insert({
+      .upsert({
         user_id: session.user.id,
         display_name: displayName.trim(),
         role: 'volunteer',
         cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107'
-      })
+      }, { onConflict: 'user_id' })
       .select()
       .single()
     if (error) {

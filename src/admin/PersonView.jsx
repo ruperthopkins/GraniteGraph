@@ -124,21 +124,27 @@ export default function PersonView({ onBack }) {
     setShowAddRel(false)
 
     // Full deceased record
-    const { data: person } = await supabase
+    const { data: person, error: personError } = await supabase
       .from('deceased')
       .select('*')
       .eq('deceased_id', record.deceased_id)
       .single()
-    setSelected(person)
+    if (personError && personError.code !== 'PGRST116') {
+      console.error('Error loading person:', personError)
+    }
+    setSelected(person || null)
     setEditForm(person || {})
 
     // Stone + photo
-    const { data: sd } = await supabase
+    const { data: sd, error: sdError } = await supabase
       .from('stone_deceased')
       .select('role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(photo_url, is_primary, side))')
       .eq('deceased_id', record.deceased_id)
       .limit(1)
       .single()
+    if (sdError && sdError.code !== 'PGRST116') {
+      console.error('Error loading stone data:', sdError)
+    }
     if (sd?.stones) setStoneData(sd.stones)
 
     // Kinship

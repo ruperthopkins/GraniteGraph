@@ -30,9 +30,14 @@ export default async function handler(req, res) {
       }),
     })
 
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      console.error('Anthropic HTTP error:', response.status, JSON.stringify(errData))
+      return res.status(response.status).json({ error: errData.error?.message || 'Anthropic API error', type: errData.error?.type })
+    }
+
     const data = await response.json()
 
-    // Log the full response for debugging
     if (data.error) {
       console.error('Anthropic error:', JSON.stringify(data.error))
       return res.status(400).json({ error: data.error.message, type: data.error.type })

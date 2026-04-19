@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -127,6 +127,10 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
   const currentStoneRef = useRef(null)
   const autoSearchTimer = useRef(null)
 
+  useEffect(() => {
+    return () => { if (autoSearchTimer.current) clearTimeout(autoSearchTimer.current) }
+  }, [])
+
   // ── IMAGE HANDLING ───────────────────────────────────────
   const handlePhoto = (e) => {
     const file = e.target.files[0]
@@ -251,10 +255,13 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     }
     const { data } = await dbQuery.order('last_name').order('first_name').limit(20)
     if (data && data.length > 0) {
-      setStoneMatrix(prev => ({
-        ...prev,
-        people: prev.people.map((p, i) => i === index ? { ...p, preSearchResults: data } : p)
-      }))
+      setStoneMatrix(prev => {
+        if (!prev?.people?.[index]) return prev
+        return {
+          ...prev,
+          people: prev.people.map((p, i) => i === index ? { ...p, preSearchResults: data } : p)
+        }
+      })
     }
   }
 
@@ -304,17 +311,17 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       // FIX #3: if volunteer came from Search Records with a pending match,
       // pre-match person 0 immediately so they never have to search again
       if (pendingPhotoFor && firstPerson.matchStatus === 'pending') {
+        // Compute everything from current snapshot before any setState calls
+        const nextIndex = stoneMatrix.people.length > 1 ? 1 : 0
+        const next = stoneMatrix.people[nextIndex] || firstPerson
+        const cleaned = cleanNameForSearch(next.correctedName)
         setStoneMatrix(prev => ({
           ...prev,
           people: prev.people.map((p, i) =>
             i === 0 ? { ...p, matchedRecord: pendingPhotoFor, matchStatus: 'matched' } : p
           )
         }))
-        // Move to person 1 if there are more, otherwise index stays 0 (already matched)
-        const nextIndex = stoneMatrix.people.length > 1 ? 1 : 0
         setMatchingIndex(nextIndex)
-        const next = stoneMatrix.people[nextIndex] || firstPerson
-        const cleaned = cleanNameForSearch(next.correctedName)
         setMatchSearchQuery(cleaned)
         setMatchSearchResults(next.preSearchResults || [])
         setMatchSearchAttempted(next.preSearchResults ? true : false)
@@ -399,6 +406,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
   // ── GPS ──────────────────────────────────────────────────
   const getAccuratePosition = () => new Promise((resolve, reject) => {
     let bestPosition = null
+    let resolved = false
     setGpsStatus('Acquiring GPS...')
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
@@ -408,13 +416,15 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
         if (pos.coords.accuracy <= 10) {
           navigator.geolocation.clearWatch(watchId)
           setGpsStatus(null)
+          resolved = true
           resolve(pos)
         }
       },
-      (err) => { if (bestPosition) { setGpsStatus(null); resolve(bestPosition) } else { reject(err) } },
+      (err) => { if (bestPosition) { setGpsStatus(null); resolved = true; resolve(bestPosition) } else { reject(err) } },
       { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
     )
     setTimeout(() => {
+      if (resolved) return
       navigator.geolocation.clearWatch(watchId)
       setGpsStatus(null)
       if (bestPosition) {
@@ -489,10 +499,15 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
             role: person.role
           })
 
-          // Update maiden name if Gemini found one
+          // Update maiden name if Gemini found one and record has none
           if (person.geminiData.maiden_name && !person.matchedRecord.maiden_name) {
             await supabase.from('deceased').update({ maiden_name: person.geminiData.maiden_name })
               .eq('deceased_id', person.matchedRecord.deceased_id)
+            await supabase.from('activity_log').insert({
+              user_id: session.user.id, action: 'maiden_name_added', entity_type: 'deceased',
+              entity_id: person.matchedRecord.deceased_id, cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+              metadata: { maiden_name: person.geminiData.maiden_name, source: 'gemini_stone_ocr', stone_id: stoneData.stone_id }
+            })
           }
 
           // Log activity
@@ -589,11 +604,11 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     if (record.is_photographed) {
       const { data, error } = await supabase.from('stone_deceased')
         .select('stones ( stone_id, gps_accuracy_m, condition_notes, inscription_text, stone_photos ( photo_url, is_primary ) )')
-        .eq('deceased_id', record.deceased_id).limit(1).single()
-      if (!error && data?.stones) {
+        .eq('deceased_id', record.deceased_id).limit(1)
+      if (!error && data?.[0]?.stones) {
         const { data: coords } = await supabase.rpc('get_stones_with_coordinates')
-        const stoneCoord = coords?.find(c => c.stone_id === data.stones.stone_id)
-        setSearchStoneData({ ...data.stones, lat: stoneCoord?.lat, lng: stoneCoord?.lng })
+        const stoneCoord = coords?.find(c => c.stone_id === data[0].stones.stone_id)
+        setSearchStoneData({ ...data[0].stones, lat: stoneCoord?.lat, lng: stoneCoord?.lng })
       }
     }
   }

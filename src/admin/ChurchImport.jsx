@@ -384,7 +384,7 @@ export default function ChurchImport({ onBack }) {
   const toggleRel    = id => setResult(r => ({ ...r, relationships: r.relationships.map(x => x._id === id ? { ...x, _keep: !x._keep } : x) }))
   const startEdit    = p  => { setEditId(p._id); setEditData({ ...p }) }
   const saveEdit     = () => {
-    setResult(r => ({ ...r, people: r.people.map(p => p._id === editId ? { ...editData } : p) }))
+    setResult(r => ({ ...r, people: r.people.map(p => p._id === editId ? { ...p, ...editData } : p) }))
     setEditId(null); setEditData(null)
   }
 
