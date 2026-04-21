@@ -28,9 +28,16 @@ export function normToken(token) {
   return stripped.charAt(0).toUpperCase() + stripped.slice(1).toLowerCase()
 }
 
+// Extract first name from full_name if first_name field is absent (e.g. view records)
+function extractFirstName(person) {
+  if (person.first_name) return normToken(person.first_name)
+  if (person.full_name) return normToken(person.full_name.trim().split(/\s+/)[0])
+  return ''
+}
+
 export function normaliseName(person) {
   return {
-    first_name: normToken(person.first_name),
+    first_name: extractFirstName(person),
     middle_name: normToken(person.middle_name),
     last_name: person.last_name
       ? person.last_name.charAt(0).toUpperCase() + person.last_name.slice(1).toLowerCase()
@@ -60,26 +67,34 @@ export function matchScore(a, b) {
   const nb = normaliseName(b)
   let score = 0
 
-  // First name
   const fa = na.first_name.toLowerCase()
   const fb = nb.first_name.toLowerCase()
-  if (fa && fb) {
-    if (fa === fb) {
-      score += 40
-    } else if (fa.startsWith(fb.slice(0, 3)) || fb.startsWith(fa.slice(0, 3)) || levenshtein(fa, fb) <= 2) {
-      score += 20
-    }
-  }
-
-  // Last name
   const la = na.last_name.toLowerCase()
   const lb = nb.last_name.toLowerCase()
+  const ma = na.maiden_name.toLowerCase()
+  const mb = nb.maiden_name.toLowerCase()
+
+  // First name (required signal — no score without it)
+  let firstNameScore = 0
+  if (fa && fb) {
+    if (fa === fb) firstNameScore = 35
+    else if (fa.startsWith(fb.slice(0, 3)) || fb.startsWith(fa.slice(0, 3)) || levenshtein(fa, fb) <= 2) firstNameScore = 15
+  }
+  score += firstNameScore
+
+  // Last name exact or fuzzy
   if (la && lb) {
-    if (la === lb) {
-      score += 30
-    } else if (levenshtein(la, lb) <= 2) {
-      score += 15
-    }
+    if (la === lb) score += 25
+    else if (levenshtein(la, lb) <= 2) score += 10
+  }
+
+  // Maiden ↔ last cross-match: one record's maiden name is the other's surname.
+  // This is the primary signal for the same woman appearing under different names.
+  // Only award if first names also matched (firstNameScore > 0).
+  if (firstNameScore > 0) {
+    if (ma && lb && ma === lb) score += 25   // a.maiden = b.last
+    if (mb && la && mb === la) score += 25   // b.maiden = a.last
+    if (ma && mb && ma === mb) score += 15   // same maiden name on both
   }
 
   // Birth year proximity
@@ -90,16 +105,14 @@ export function matchScore(a, b) {
   const dayA = a.date_of_death_year, dayB = b.date_of_death_year
   if (dayA && dayB && Math.abs(dayA - dayB) <= 2) score += 10
 
-  // Maiden name cross-match
-  if (na.maiden_name && nb.maiden_name) {
-    if (na.maiden_name.toLowerCase() === nb.maiden_name.toLowerCase()) score += 5
-  } else if (na.maiden_name && nb.last_name) {
-    if (na.maiden_name.toLowerCase() === nb.last_name.toLowerCase()) score += 5
-  } else if (nb.maiden_name && na.last_name) {
-    if (nb.maiden_name.toLowerCase() === na.last_name.toLowerCase()) score += 5
+  // Church event date match (catches same-day marriages across name variants)
+  if (a.church_event_date_verbatim && b.church_event_date_verbatim &&
+      a.church_event_date_verbatim.trim() === b.church_event_date_verbatim.trim() &&
+      firstNameScore > 0) {
+    score += 15
   }
 
-  // Gender match
+  // Gender match (minor boost)
   if (a.gender && b.gender && a.gender === b.gender) score += 5
 
   return score

@@ -289,12 +289,16 @@ export default function PersonView({ onBack }) {
     setMergeFieldChoices({})
     setMergeLog(null)
     const norm = normaliseName(person)
+    // Search by last name OR maiden name so cross-name variants (e.g. Ferris/Hopkins) surface
+    const nameFilter = norm.maiden_name
+      ? `last_name.ilike.%${norm.last_name}%,maiden_name.ilike.%${norm.last_name}%,last_name.ilike.%${norm.maiden_name}%`
+      : `last_name.ilike.%${norm.last_name}%,maiden_name.ilike.%${norm.last_name}%`
     const { data, error } = await supabase
       .from('v_deceased_search')
       .select('*')
-      .ilike('last_name', `%${norm.last_name}%`)
+      .or(nameFilter)
       .neq('deceased_id', person.deceased_id)
-      .limit(30)
+      .limit(40)
     if (error) {
       setDupCandidates([{ _error: error.message }])
       setFindingDups(false)
