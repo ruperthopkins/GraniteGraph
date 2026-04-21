@@ -289,18 +289,25 @@ export default function PersonView({ onBack }) {
     setMergeFieldChoices({})
     setMergeLog(null)
     const norm = normaliseName(person)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('v_deceased_search')
       .select('*')
       .ilike('last_name', `%${norm.last_name}%`)
       .neq('deceased_id', person.deceased_id)
       .limit(30)
-    const scored = (data || [])
-      .map(r => ({ record: r, score: matchScore(person, r) }))
-      .filter(c => c.score >= 50)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 8)
-    setDupCandidates(scored)
+    if (error) {
+      setDupCandidates([{ _error: error.message }])
+      setFindingDups(false)
+      return
+    }
+    const all = (data || []).map(r => ({ record: r, score: matchScore(person, r) }))
+    const scored = all.filter(c => c.score >= 50).sort((a, b) => b.score - a.score).slice(0, 8)
+    // Surface a diagnostic if query returned rows but none scored high enough
+    if (data && data.length > 0 && scored.length === 0) {
+      setDupCandidates([{ _debug: `${data.length} records found for last name "${norm.last_name}" but none scored ≥50. Top score: ${Math.max(...all.map(c => c.score))}` }])
+    } else {
+      setDupCandidates(scored)
+    }
     setFindingDups(false)
   }
 
@@ -822,7 +829,14 @@ export default function PersonView({ onBack }) {
                     </p>
                   )}
 
-                  {dupCandidates.length > 0 && !mergeLog && (
+                  {dupCandidates[0]?._error && (
+                    <p style={{ fontSize: 12, color: 'var(--color-text-danger)' }}>Error: {dupCandidates[0]._error}</p>
+                  )}
+                  {dupCandidates[0]?._debug && (
+                    <p style={{ fontSize: 12, color: 'var(--color-text-warning)' }}>{dupCandidates[0]._debug}</p>
+                  )}
+
+                  {dupCandidates.length > 0 && !mergeLog && !dupCandidates[0]?._error && !dupCandidates[0]?._debug && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {dupCandidates.map(({ record: cand, score }) => {
                         const isTarget = mergeTarget?.deceased_id === cand.deceased_id
