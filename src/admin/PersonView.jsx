@@ -345,9 +345,12 @@ export default function PersonView({ onBack }) {
   const photo = stoneData?.stone_photos?.find(p => p.is_primary) || stoneData?.stone_photos?.[0]
 
   const MERGE_FIELDS = [
+    { key: 'first_name', label: 'first name' },
+    { key: 'middle_name', label: 'middle name' },
+    { key: 'last_name', label: 'last name' },
+    { key: 'maiden_name', label: 'maiden name' },
     { key: 'date_of_birth_verbatim', label: 'birth date' },
     { key: 'date_of_death_verbatim', label: 'death date' },
-    { key: 'maiden_name', label: 'maiden name' },
     { key: 'church_event_type', label: 'church event type' },
     { key: 'church_event_date_verbatim', label: 'church event date' },
     { key: 'notes', label: 'notes' },
@@ -925,7 +928,7 @@ export default function PersonView({ onBack }) {
                                     disabled={merging}
                                     style={{ background: 'var(--color-background-danger)', color: 'var(--color-text-danger)', border: '0.5px solid var(--color-border-danger)' }}
                                   >
-                                    {merging ? 'Merging…' : `Confirm — delete ${cand.full_name}, keep ${selected.first_name} ${selected.last_name}`}
+                                    {merging ? 'Merging…' : `Confirm — absorb ${cand.full_name} into ${mergeFieldChoices['first_name'] ? mergeTarget?.first_name : selected.first_name} ${mergeFieldChoices['last_name'] ? mergeTarget?.last_name : selected.last_name}`}
                                   </button>
                                 </div>
                               </div>
