@@ -2,6 +2,8 @@
 // Granite Graph — Church Records & Reference Import Tool
 
 import { useState } from 'react'
+import { supabase } from '../supabaseClient'
+import { normaliseName, matchScore } from '../utils/nameNorm'
 
 const SOURCE_ID_CHURCH = '800c5884-d180-42b0-9ca6-4e05c8fd64cb'
 const SOURCE_ID_GENEALOGY = '9cb5c6d4-83b2-4ec6-ae59-72d2d7eb1155'
@@ -345,6 +347,8 @@ export default function ChurchImport({ onBack }) {
   const [copied, setCopied]         = useState(false)
   const [editId, setEditId]         = useState(null)
   const [editData, setEditData]     = useState(null)
+  const [personActions, setPersonActions]       = useState({})
+  const [preflightRunning, setPreflightRunning] = useState(false)
 
   // ── Extract ────────────────────────────────────────────────────────────────
   const extract = async () => {
@@ -388,66 +392,171 @@ export default function ChurchImport({ onBack }) {
     setEditId(null); setEditData(null)
   }
 
+  // ── Pre-flight: match extracted people against existing DB records ──────────
+  const runPreflight = async (people) => {
+    setPreflightRunning(true)
+    const actions = {}
+    for (const person of people.filter(p => p._keep)) {
+      const norm = normaliseName(person)
+      if (!norm.last_name) {
+        actions[person._id] = { action: 'create', candidates: [] }
+        continue
+      }
+      const prefix = norm.first_name ? norm.first_name.slice(0, 3) : ''
+      let q2 = supabase.from('v_deceased_search').select('*').ilike('last_name', `%${norm.last_name}%`)
+      if (prefix) q2 = q2.ilike('first_name', `%${prefix}%`)
+      const { data } = await q2.limit(5)
+      const candidates = (data || [])
+        .map(r => ({ record: r, score: matchScore(person, r) }))
+        .filter(c => c.score >= 60)
+        .sort((a, b) => b.score - a.score)
+      if (candidates.length === 0) {
+        actions[person._id] = { action: 'create', candidates: [] }
+      } else if (candidates[0].score >= 80) {
+        actions[person._id] = { action: 'use_existing', candidates, selectedRecord: candidates[0].record }
+      } else {
+        actions[person._id] = { action: 'review', candidates, selectedRecord: null }
+      }
+    }
+    setPersonActions(actions)
+    setPreflightRunning(false)
+    setStep('preflight')
+  }
+
   // ── SQL generation ─────────────────────────────────────────────────────────
   const genSQL = () => {
     if (!result) return ''
     const chunk = CHUNKS[chunkKey]
     const srcId = chunk.sourceId
 
-    const peopleRows = result.people.filter(p => p._keep).map(p =>
-      `  (${q(p.first_name)}, ${q(p.middle_name)}, ${q(p.last_name)}, ${q(p.maiden_name)}, ` +
-      `${q(p.gender)}, '${CEMETERY_ID}', '${srcId}', ` +
-      `${q(p.event_type)}, ${q(p.event_date_verbatim)}, ${p.event_year || 'NULL'}, ` +
-      `${q(p.date_of_birth_verbatim)}, ${q(p.date_of_death_verbatim)}, ` +
-      `${p.date_of_birth_year || 'NULL'}, ${p.date_of_death_year || 'NULL'}, ${q(p.notes)})`
-    )
+    // Build name → action map for kinship UUID resolution
+    const actionByName = {}
+    result.people.forEach(p => {
+      const act = personActions[p._id]
+      if (act) actionByName[(p.full_name || '').toLowerCase().trim()] = act
+    })
+    const resolveId = (fullName) => {
+      const act = actionByName[(fullName || '').toLowerCase().trim()]
+      return (act?.action === 'use_existing' && act.selectedRecord) ? act.selectedRecord.deceased_id : null
+    }
+
+    const nameParts = (name) => {
+      const parts = (name || '').trim().split(' ')
+      return { first: parts[0], last: parts[parts.length - 1] }
+    }
+
+    const deceasedInserts = []
+    const sourceInserts = []
+
+    result.people.filter(p => p._keep).forEach(p => {
+      const act = personActions[p._id]
+      const useExisting = act?.action === 'use_existing' && act.selectedRecord
+
+      if (!useExisting) {
+        deceasedInserts.push(
+          `  (${q(p.first_name)}, ${q(p.middle_name)}, ${q(p.last_name)}, ${q(p.maiden_name)}, ` +
+          `${q(p.gender)}, '${CEMETERY_ID}', '${srcId}', ` +
+          `${q(p.event_type)}, ${q(p.event_date_verbatim)}, ${p.event_year || 'NULL'}, ` +
+          `${q(p.date_of_birth_verbatim)}, ${q(p.date_of_death_verbatim)}, ` +
+          `${p.date_of_birth_year || 'NULL'}, ${p.date_of_death_year || 'NULL'}, ${q(p.notes)})`
+        )
+        sourceInserts.push(
+          `INSERT INTO deceased_sources (deceased_id, source_id, source_type,\n` +
+          `  church_event_type, church_event_date_verbatim, church_event_year,\n` +
+          `  date_of_birth_verbatim, date_of_death_verbatim, date_of_birth_year, date_of_death_year, notes)\n` +
+          `SELECT deceased_id, '${srcId}', 'church_record',\n` +
+          `  ${q(p.event_type)}, ${q(p.event_date_verbatim)}, ${p.event_year || 'NULL'},\n` +
+          `  ${q(p.date_of_birth_verbatim)}, ${q(p.date_of_death_verbatim)},\n` +
+          `  ${p.date_of_birth_year || 'NULL'}, ${p.date_of_death_year || 'NULL'}, ${q(p.notes)}\n` +
+          `FROM deceased WHERE first_name ILIKE '${esc(p.first_name)}' AND last_name ILIKE '${esc(p.last_name)}'\n` +
+          (p.date_of_birth_year ? `  AND date_of_birth_year = ${p.date_of_birth_year}\n` : '') +
+          `ORDER BY created_at DESC LIMIT 1\nON CONFLICT DO NOTHING;`
+        )
+      } else {
+        sourceInserts.push(
+          `-- ${p.full_name} → existing record ${act.selectedRecord.deceased_id} (${act.selectedRecord.full_name})\n` +
+          `INSERT INTO deceased_sources (deceased_id, source_id, source_type,\n` +
+          `  church_event_type, church_event_date_verbatim, church_event_year,\n` +
+          `  date_of_birth_verbatim, date_of_death_verbatim, date_of_birth_year, date_of_death_year, notes)\n` +
+          `VALUES ('${act.selectedRecord.deceased_id}', '${srcId}', 'church_record',\n` +
+          `  ${q(p.event_type)}, ${q(p.event_date_verbatim)}, ${p.event_year || 'NULL'},\n` +
+          `  ${q(p.date_of_birth_verbatim)}, ${q(p.date_of_death_verbatim)},\n` +
+          `  ${p.date_of_birth_year || 'NULL'}, ${p.date_of_death_year || 'NULL'}, ${q(p.notes)})\n` +
+          `ON CONFLICT DO NOTHING;`
+        )
+      }
+    })
 
     const kinshipRows = result.relationships.filter(r => r._keep).map(r => {
-      const nameParts = (name) => {
-        const parts = (name || '').trim().split(' ')
-        return { first: parts[0], last: parts[parts.length - 1] }
-      }
       const a = nameParts(r.person_a)
       const b = nameParts(r.person_b)
-      const aYear = r.person_a_birth_year
-        ? `AND a.date_of_birth_year = ${r.person_a_birth_year}` : ''
-      const bYear = r.person_b_birth_year
-        ? `AND b.date_of_birth_year = ${r.person_b_birth_year}` : ''
-      return (
-        `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id)\n` +
-        `SELECT a.deceased_id, b.deceased_id, '${r.relationship.toLowerCase().replace('_of', '')}', 'document', '${r.confidence === 'high' ? 'confirmed' : 'probable'}', ${q(r.evidence)}, '${srcId}'\n` +
-        `FROM deceased a, deceased b\n` +
-        `WHERE a.first_name ILIKE '${esc(a.first)}' AND a.last_name ILIKE '${esc(a.last)}' ${aYear}\n` +
-        `  AND b.first_name ILIKE '${esc(b.first)}' AND b.last_name ILIKE '${esc(b.last)}' ${bYear}\n` +
-        `ON CONFLICT DO NOTHING;`
-      )
+      const aId = resolveId(r.person_a)
+      const bId = resolveId(r.person_b)
+      const aYear = r.person_a_birth_year ? `AND a.date_of_birth_year = ${r.person_a_birth_year}` : ''
+      const bYear = r.person_b_birth_year ? `AND b.date_of_birth_year = ${r.person_b_birth_year}` : ''
+      const relType = r.relationship.toLowerCase().replace('_of', '')
+      const conf = r.confidence === 'high' ? 'confirmed' : 'probable'
+
+      if (aId && bId) {
+        return (
+          `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id)\n` +
+          `VALUES ('${aId}', '${bId}', '${relType}', 'church_record', '${conf}', ${q(r.evidence)}, '${srcId}')\n` +
+          `ON CONFLICT DO NOTHING;`
+        )
+      } else if (aId) {
+        return (
+          `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id)\n` +
+          `SELECT '${aId}', b.deceased_id, '${relType}', 'church_record', '${conf}', ${q(r.evidence)}, '${srcId}'\n` +
+          `FROM deceased b WHERE b.first_name ILIKE '${esc(b.first)}' AND b.last_name ILIKE '${esc(b.last)}' ${bYear}\n` +
+          `LIMIT 1\nON CONFLICT DO NOTHING;`
+        )
+      } else if (bId) {
+        return (
+          `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id)\n` +
+          `SELECT a.deceased_id, '${bId}', '${relType}', 'church_record', '${conf}', ${q(r.evidence)}, '${srcId}'\n` +
+          `FROM deceased a WHERE a.first_name ILIKE '${esc(a.first)}' AND a.last_name ILIKE '${esc(a.last)}' ${aYear}\n` +
+          `LIMIT 1\nON CONFLICT DO NOTHING;`
+        )
+      } else {
+        return (
+          `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id)\n` +
+          `SELECT a.deceased_id, b.deceased_id, '${relType}', 'church_record', '${conf}', ${q(r.evidence)}, '${srcId}'\n` +
+          `FROM deceased a, deceased b\n` +
+          `WHERE a.first_name ILIKE '${esc(a.first)}' AND a.last_name ILIKE '${esc(a.last)}' ${aYear}\n` +
+          `  AND b.first_name ILIKE '${esc(b.first)}' AND b.last_name ILIKE '${esc(b.last)}' ${bYear}\n` +
+          `ON CONFLICT DO NOTHING;`
+        )
+      }
     })
+
+    const newCount = result.people.filter(p => p._keep && personActions[p._id]?.action !== 'use_existing').length
+    const existingCount = result.people.filter(p => p._keep && personActions[p._id]?.action === 'use_existing').length
 
     return [
       `-- Granite Graph Import — ${chunkKey}`,
       `-- Generated ${new Date().toISOString().split('T')[0]}`,
-      `-- ${result.people.filter(p => p._keep).length} people, ${result.relationships.filter(r => r._keep).length} relationships`,
+      `-- ${newCount} new records, ${existingCount} linked to existing, ${result.relationships.filter(r => r._keep).length} relationships`,
       ``,
-      `-- STEP 1: Migration (run once)`,
-      `ALTER TABLE deceased`,
-      `  ADD COLUMN IF NOT EXISTS date_of_birth_year integer,`,
-      `  ADD COLUMN IF NOT EXISTS date_of_death_year integer;`,
-      ``,
-      `-- STEP 2: Insert people`,
-      `INSERT INTO deceased`,
-      `  (first_name, middle_name, last_name, maiden_name, gender, cemetery_id, source_id,`,
-      `   church_event_type, church_event_date_verbatim, church_event_year,`,
-      `   date_of_birth_verbatim, date_of_death_verbatim, date_of_birth_year, date_of_death_year, notes)`,
-      `VALUES`,
-      peopleRows.join(',\n'),
-      `ON CONFLICT DO NOTHING;`,
+      ...(newCount > 0 ? [
+        `-- STEP 1: Insert new people`,
+        `INSERT INTO deceased`,
+        `  (first_name, middle_name, last_name, maiden_name, gender, cemetery_id, source_id,`,
+        `   church_event_type, church_event_date_verbatim, church_event_year,`,
+        `   date_of_birth_verbatim, date_of_death_verbatim, date_of_birth_year, date_of_death_year, notes)`,
+        `VALUES`,
+        deceasedInserts.join(',\n'),
+        `ON CONFLICT DO NOTHING;`,
+        ``,
+      ] : []),
+      `-- STEP 2: Record source evidence in deceased_sources`,
+      ...sourceInserts,
       ``,
       `-- STEP 3: Insert kinship relationships`,
-      `-- Review carefully — duplicate names may match wrong person without birth year`,
       ...kinshipRows,
       ``,
       `-- Verify:`,
       `SELECT COUNT(*) FROM deceased WHERE source_id = '${srcId}';`,
+      `SELECT COUNT(*) FROM deceased_sources WHERE source_id = '${srcId}';`,
       `SELECT COUNT(*) FROM kinship WHERE source_id = '${srcId}';`,
     ].join('\n')
   }
@@ -673,9 +782,84 @@ export default function ChurchImport({ onBack }) {
               </div>
             )}
 
+            <button onClick={() => runPreflight(result.people)} disabled={preflightRunning}
+              style={btn({ width: '100%', background: preflightRunning ? '#374151' : '#15803d', color: preflightRunning ? '#9ca3af' : '#fff', marginTop: 16 })}>
+              {preflightRunning ? 'Checking for existing records…' : `Check for duplicates & generate SQL (${keptPeople}p · ${keptRels}r)`}
+            </button>
+          </div>
+        )}
+
+        {/* ── PREFLIGHT ── */}
+        {step === 'preflight' && result && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <button onClick={() => setStep('review')} style={btn({ background: 'none', border: 'none', color: '#9ca3af', padding: 0 })}>← Back to review</button>
+              <span style={{ fontSize: 13, color: '#6b7280' }}>Confirm how each person maps to existing records</span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 500, overflowY: 'auto', marginBottom: 16 }}>
+              {result.people.filter(p => p._keep).map(person => {
+                const act = personActions[person._id] || { action: 'create', candidates: [] }
+                const statusColor = act.action === 'use_existing' ? '#15803d' : act.action === 'review' ? '#b45309' : '#374151'
+                const statusLabel = act.action === 'use_existing' ? 'Use existing' : act.action === 'review' ? 'Possible match' : 'New record'
+                return (
+                  <div key={person._id} style={{ ...card, border: `1px solid ${statusColor}` }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+                          <span style={{ fontWeight: 600, fontSize: 14 }}>{person.full_name}</span>
+                          {person.date_of_birth_verbatim && <span style={{ fontSize: 11, color: '#9ca3af' }}>b. {person.date_of_birth_verbatim}</span>}
+                          {person.date_of_death_verbatim && <span style={{ fontSize: 11, color: '#9ca3af' }}>d. {person.date_of_death_verbatim}</span>}
+                          <span style={badge(statusColor)}>{statusLabel}</span>
+                        </div>
+
+                        {act.action === 'use_existing' && act.selectedRecord && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#15803d22', borderRadius: 4, padding: '4px 8px', fontSize: 12, marginBottom: 4 }}>
+                            <span style={{ color: '#34d399' }}>→ {act.selectedRecord.full_name}</span>
+                            {act.selectedRecord.date_of_birth_verbatim && <span style={{ color: '#6b7280' }}>b. {act.selectedRecord.date_of_birth_verbatim}</span>}
+                            {act.selectedRecord.date_of_death_verbatim && <span style={{ color: '#6b7280' }}>d. {act.selectedRecord.date_of_death_verbatim}</span>}
+                            <button onClick={() => setPersonActions(pa => ({ ...pa, [person._id]: { ...act, action: 'create' } }))}
+                              style={{ marginLeft: 'auto', fontSize: 11, padding: '1px 6px', background: 'transparent', border: '1px solid #374151', color: '#9ca3af', borderRadius: 4, cursor: 'pointer' }}>
+                              Create new instead
+                            </button>
+                          </div>
+                        )}
+
+                        {(act.action === 'review' || (act.action === 'use_existing' && !act.selectedRecord)) && act.candidates.length > 0 && (
+                          <div style={{ marginBottom: 4 }}>
+                            <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 4px' }}>Select existing record or create new:</p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              {act.candidates.map(({ record, score }) => (
+                                <div key={record.deceased_id} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1f2937', borderRadius: 4, padding: '4px 8px' }}>
+                                  <span style={{ fontSize: 12, flex: 1 }}>
+                                    {record.full_name}
+                                    {record.date_of_birth_verbatim && ` b. ${record.date_of_birth_verbatim}`}
+                                    {record.date_of_death_verbatim && ` d. ${record.date_of_death_verbatim}`}
+                                  </span>
+                                  <span style={badge('#b45309')}>{score}%</span>
+                                  <button onClick={() => setPersonActions(pa => ({ ...pa, [person._id]: { ...act, action: 'use_existing', selectedRecord: record } }))}
+                                    style={{ fontSize: 11, padding: '1px 8px', background: '#15803d', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+                                    Use this
+                                  </button>
+                                </div>
+                              ))}
+                              <button onClick={() => setPersonActions(pa => ({ ...pa, [person._id]: { action: 'create', candidates: act.candidates } }))}
+                                style={{ fontSize: 11, padding: '3px 8px', background: 'transparent', border: '1px solid #374151', color: '#9ca3af', borderRadius: 4, cursor: 'pointer', marginTop: 2, textAlign: 'left' }}>
+                                None match — create new record
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
             <button onClick={() => setStep('sql')}
-              style={btn({ width: '100%', background: '#15803d', color: '#fff', marginTop: 16 })}>
-              Generate SQL ({keptPeople} people, {keptRels} relationships)
+              style={btn({ width: '100%', background: '#15803d', color: '#fff' })}>
+              Generate SQL
             </button>
           </div>
         )}

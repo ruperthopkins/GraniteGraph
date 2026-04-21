@@ -4,6 +4,8 @@
 
 import { useState, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
+import { normaliseName, matchScore } from '../utils/nameNorm'
+import { mergePersons } from '../utils/mergePersons'
 
 const RELATIONSHIP_TYPES = ['spouse', 'parent', 'child', 'sibling', 'unknown']
 const CONFIDENCE_LEVELS = ['confirmed', 'probable', 'possible', 'uncertain']
@@ -92,6 +94,14 @@ export default function PersonView({ onBack }) {
   const [addRelTarget, setAddRelTarget] = useState(null)
   const [savingAddRel, setSavingAddRel] = useState(false)
 
+  // Duplicate finder / merge
+  const [dupCandidates, setDupCandidates]         = useState([])
+  const [findingDups, setFindingDups]             = useState(false)
+  const [mergeTarget, setMergeTarget]             = useState(null)
+  const [mergeFieldChoices, setMergeFieldChoices] = useState({})
+  const [merging, setMerging]                     = useState(false)
+  const [mergeLog, setMergeLog]                   = useState(null)
+
   // ── Search ──────────────────────────────────────────────────────────────────
   const handleSearch = async () => {
     if (!searchQuery.trim()) return
@@ -122,6 +132,10 @@ export default function PersonView({ onBack }) {
     setKinship([])
     setEditingPerson(false)
     setShowAddRel(false)
+    setDupCandidates([])
+    setMergeTarget(null)
+    setMergeFieldChoices({})
+    setMergeLog(null)
 
     // Full deceased record
     const { data: person, error: personError } = await supabase
@@ -267,6 +281,47 @@ export default function PersonView({ onBack }) {
     setSavingAddRel(false)
   }
 
+  // ── Duplicate finder ────────────────────────────────────────────────────────
+  const findDuplicates = async (person) => {
+    setFindingDups(true)
+    setDupCandidates([])
+    setMergeTarget(null)
+    setMergeFieldChoices({})
+    setMergeLog(null)
+    const norm = normaliseName(person)
+    const { data } = await supabase
+      .from('v_deceased_search')
+      .select('*')
+      .ilike('last_name', `%${norm.last_name}%`)
+      .neq('deceased_id', person.deceased_id)
+      .limit(30)
+    const scored = (data || [])
+      .map(r => ({ record: r, score: matchScore(person, r) }))
+      .filter(c => c.score >= 50)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8)
+    setDupCandidates(scored)
+    setFindingDups(false)
+  }
+
+  const confirmMerge = async () => {
+    setMerging(true)
+    const fieldOverrides = {}
+    for (const [field, useFromDup] of Object.entries(mergeFieldChoices)) {
+      if (useFromDup) fieldOverrides[field] = mergeTarget[field]
+    }
+    const result = await mergePersons(supabase, selected.deceased_id, mergeTarget.deceased_id, fieldOverrides)
+    setMergeLog(result.log)
+    if (result.ok) {
+      setMergeTarget(null)
+      setMergeFieldChoices({})
+      await loadPerson(selected)
+    } else {
+      alert('Merge failed: ' + result.error)
+    }
+    setMerging(false)
+  }
+
   // ── Derived ─────────────────────────────────────────────────────────────────
   const grouped = {
     parent:  kinship.filter(k => k.relationship_type === 'parent'),
@@ -277,6 +332,23 @@ export default function PersonView({ onBack }) {
   }
 
   const photo = stoneData?.stone_photos?.find(p => p.is_primary) || stoneData?.stone_photos?.[0]
+
+  const MERGE_FIELDS = [
+    { key: 'date_of_birth_verbatim', label: 'birth date' },
+    { key: 'date_of_death_verbatim', label: 'death date' },
+    { key: 'maiden_name', label: 'maiden name' },
+    { key: 'church_event_type', label: 'church event type' },
+    { key: 'church_event_date_verbatim', label: 'church event date' },
+    { key: 'notes', label: 'notes' },
+    { key: 'biography', label: 'biography' },
+  ]
+  const diffFields = mergeTarget
+    ? MERGE_FIELDS.filter(({ key }) => {
+        const a = (selected[key] || '').toString().trim()
+        const b = (mergeTarget[key] || '').toString().trim()
+        return a !== b && (a !== '' || b !== '')
+      })
+    : []
 
   // ── Styles ──────────────────────────────────────────────────────────────────
   const card = {
@@ -721,6 +793,132 @@ export default function PersonView({ onBack }) {
                   )
                 })}
               </div>
+
+              {/* Potential duplicates */}
+              {!editingPerson && (
+                <div style={card}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: dupCandidates.length > 0 || findingDups ? 14 : 0 }}>
+                    <p style={sectionLabel}>Potential duplicates</p>
+                    <button onClick={() => findDuplicates(selected)} disabled={findingDups}>
+                      {findingDups ? 'Searching…' : dupCandidates.length > 0 ? 'Search again' : 'Find duplicates'}
+                    </button>
+                  </div>
+
+                  {mergeLog && (
+                    <div style={{ background: 'var(--color-background-secondary)', borderRadius: 'var(--border-radius-md)', padding: '8px 12px', marginBottom: 14 }}>
+                      <p style={{ ...sectionLabel, marginBottom: 4 }}>Merge log</p>
+                      {mergeLog.map((line, i) => (
+                        <p key={i} style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: '1px 0', fontFamily: 'var(--font-mono)' }}>{line}</p>
+                      ))}
+                      <button onClick={() => { setMergeLog(null); findDuplicates(selected) }} style={{ marginTop: 6, fontSize: 11 }}>
+                        Find duplicates again
+                      </button>
+                    </div>
+                  )}
+
+                  {!mergeLog && dupCandidates.length === 0 && !findingDups && (
+                    <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>
+                      Click "Find duplicates" to search for records that may represent the same individual.
+                    </p>
+                  )}
+
+                  {dupCandidates.length > 0 && !mergeLog && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {dupCandidates.map(({ record: cand, score }) => {
+                        const isTarget = mergeTarget?.deceased_id === cand.deceased_id
+                        const scoreColor = score >= 80
+                          ? 'var(--color-text-danger)'
+                          : score >= 65
+                            ? 'var(--color-text-warning)'
+                            : 'var(--color-text-secondary)'
+                        return (
+                          <div key={cand.deceased_id} style={{
+                            border: isTarget ? '0.5px solid var(--color-border-warning)' : '0.5px solid var(--color-border-tertiary)',
+                            borderRadius: 'var(--border-radius-md)',
+                            padding: '10px 12px',
+                            background: isTarget ? 'var(--color-background-warning)' : 'var(--color-background-secondary)',
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <Avatar name={cand.full_name} size={30} color={score >= 80 ? 'warning' : 'secondary'} />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <p style={{ fontWeight: 500, fontSize: 13, margin: 0 }}>{cand.full_name}</p>
+                                  <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 99, border: `0.5px solid ${scoreColor}`, color: scoreColor }}>
+                                    {score}% match
+                                  </span>
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
+                                  {cand.date_of_birth_verbatim && <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>b. {cand.date_of_birth_verbatim}</span>}
+                                  {cand.date_of_death_verbatim && <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>d. {cand.date_of_death_verbatim}</span>}
+                                  {cand.church_event_type && <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{cand.church_event_type}</span>}
+                                </div>
+                              </div>
+                              {!isTarget && (
+                                <button onClick={() => { setMergeTarget(cand); setMergeFieldChoices({}) }} style={{ fontSize: 11, padding: '3px 10px' }}>
+                                  Review merge
+                                </button>
+                              )}
+                              {isTarget && (
+                                <button onClick={() => setMergeTarget(null)} style={{ fontSize: 11 }}>Cancel</button>
+                              )}
+                            </div>
+
+                            {/* Merge field diff */}
+                            {isTarget && (
+                              <div style={{ marginTop: 12, borderTop: '0.5px solid var(--color-border-tertiary)', paddingTop: 12 }}>
+                                <p style={{ ...fieldLabel, marginBottom: 8 }}>
+                                  Merging <strong>{cand.full_name}</strong> into <strong>{selected.first_name} {selected.last_name}</strong> — choose which values to keep:
+                                </p>
+                                {diffFields.length === 0 && (
+                                  <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 10 }}>All overlapping fields are identical — no field choices needed.</p>
+                                )}
+                                {diffFields.map(({ key, label }) => (
+                                  <div key={key} style={{ marginBottom: 10 }}>
+                                    <p style={fieldLabel}>{label}</p>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                      <label style={{ fontSize: 12, display: 'flex', gap: 6, alignItems: 'flex-start', cursor: 'pointer' }}>
+                                        <input type="radio" name={key}
+                                          checked={!mergeFieldChoices[key]}
+                                          onChange={() => setMergeFieldChoices(p => ({ ...p, [key]: false }))}
+                                          style={{ marginTop: 2 }}
+                                        />
+                                        <span>
+                                          <span style={{ color: 'var(--color-text-tertiary)' }}>Keep canonical: </span>
+                                          {selected[key] || <em style={{ color: 'var(--color-text-tertiary)' }}>empty</em>}
+                                        </span>
+                                      </label>
+                                      <label style={{ fontSize: 12, display: 'flex', gap: 6, alignItems: 'flex-start', cursor: 'pointer' }}>
+                                        <input type="radio" name={key}
+                                          checked={!!mergeFieldChoices[key]}
+                                          onChange={() => setMergeFieldChoices(p => ({ ...p, [key]: true }))}
+                                          style={{ marginTop: 2 }}
+                                        />
+                                        <span>
+                                          <span style={{ color: 'var(--color-text-tertiary)' }}>Use from duplicate: </span>
+                                          {cand[key] || <em style={{ color: 'var(--color-text-tertiary)' }}>empty</em>}
+                                        </span>
+                                      </label>
+                                    </div>
+                                  </div>
+                                ))}
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
+                                  <button
+                                    onClick={confirmMerge}
+                                    disabled={merging}
+                                    style={{ background: 'var(--color-background-danger)', color: 'var(--color-text-danger)', border: '0.5px solid var(--color-border-danger)' }}
+                                  >
+                                    {merging ? 'Merging…' : `Confirm — delete ${cand.full_name}, keep ${selected.first_name} ${selected.last_name}`}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
             </div>
           </div>
