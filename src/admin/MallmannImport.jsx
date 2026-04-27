@@ -63,11 +63,11 @@ function kinshipPair(refA, refB, relType, evidence, consanguineous = false) {
   const src = `'${SOURCE_ID}'`
   return (
     `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id${consCol})\n` +
-    `SELECT a.deceased_id, b.deceased_id, '${relType}', 'mallmann', 'high', ${ev}, ${src}${consVal}\n` +
+    `SELECT a.deceased_id, b.deceased_id, '${relType}', 'mallmann', 'confirmed', ${ev}, ${src}${consVal}\n` +
     `FROM deceased a, deceased b WHERE a.mallmann_ref = ${q(refA)} AND b.mallmann_ref = ${q(refB)}\n` +
     `ON CONFLICT DO NOTHING;\n` +
     `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id${consCol})\n` +
-    `SELECT b.deceased_id, a.deceased_id, '${inv}', 'mallmann', 'high', ${ev}, ${src}${consVal}\n` +
+    `SELECT b.deceased_id, a.deceased_id, '${inv}', 'mallmann', 'confirmed', ${ev}, ${src}${consVal}\n` +
     `FROM deceased a, deceased b WHERE a.mallmann_ref = ${q(refA)} AND b.mallmann_ref = ${q(refB)}\n` +
     `ON CONFLICT DO NOTHING;`
   )
