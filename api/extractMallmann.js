@@ -127,12 +127,24 @@ ${schema}`,
     if (data.error) return res.status(400).json({ error: data.error.message })
 
     const raw = data.content?.[0]?.text ?? ''
-    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
-    let parsed
-    try {
-      parsed = JSON.parse(cleaned)
-    } catch {
-      return res.status(422).json({ error: 'Model returned non-JSON', raw })
+
+    // Try several strategies to extract JSON from whatever Claude returned
+    let parsed = null
+    const candidates = [
+      raw.trim(),
+      // strip markdown fences anywhere in the string
+      raw.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim(),
+      // extract first {...} block
+      (raw.match(/\{[\s\S]*\}/) || [])[0],
+    ].filter(Boolean)
+
+    for (const candidate of candidates) {
+      try { parsed = JSON.parse(candidate); break } catch { /* try next */ }
+    }
+
+    if (!parsed) {
+      console.error('Non-JSON from Claude (first 500):', raw.substring(0, 500))
+      return res.status(422).json({ error: 'Model returned non-JSON', preview: raw.substring(0, 400) })
     }
 
     return res.status(200).json(parsed)

@@ -423,7 +423,10 @@ export default function MallmannImport({ onBack }) {
         })
         const data = await resp.json()
         if (!resp.ok) {
-          errors.push({ file: files[i].name, error: data.error || 'API error' })
+          const msg = data.preview
+            ? `${data.error} — Claude said: "${data.preview.substring(0, 120)}…"`
+            : (data.error || 'API error')
+          errors.push({ file: files[i].name, error: msg })
         } else if (data.sections) {
           allSections.push(...data.sections)
         }
