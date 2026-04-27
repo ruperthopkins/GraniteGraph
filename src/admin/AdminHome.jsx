@@ -18,6 +18,13 @@ export default function AdminHome({ profile, onNavigate, onBack }) {
   status: 'active',
 },
     {
+      id: 'mallmann',
+      icon: '📖',
+      title: 'Mallmann Import',
+      description: 'Import Mallmann 1899 genealogy pages via Claude vision — understands cross-reference numbering',
+      status: 'active',
+    },
+    {
       id: 'inscriptions',
       icon: '🔍',
       title: 'Inscription Analysis',

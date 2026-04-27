@@ -8,6 +8,7 @@ import Search from './Search'
 import AdminHome from './admin/AdminHome'
 import ChurchImport from './admin/ChurchImport'
 import PersonView from './admin/PersonView'
+import MallmannImport from './admin/MallmannImport'
 
 function App() {
   const [session, setSession] = useState(null)
@@ -142,6 +143,9 @@ function App() {
       )}
       {page === 'admin_review' && isAdmin && (
         <PersonView onBack={() => setPage('admin')} />
+      )}
+      {page === 'admin_mallmann' && isAdmin && (
+        <MallmannImport onBack={() => setPage('admin')} />
       )}
     </div>
   )
