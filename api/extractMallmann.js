@@ -127,9 +127,10 @@ ${schema}`,
     if (data.error) return res.status(400).json({ error: data.error.message })
 
     const raw = data.content?.[0]?.text ?? ''
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
     let parsed
     try {
-      parsed = JSON.parse(raw)
+      parsed = JSON.parse(cleaned)
     } catch {
       return res.status(422).json({ error: 'Model returned non-JSON', raw })
     }
