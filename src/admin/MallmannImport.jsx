@@ -54,20 +54,24 @@ function personUpsert(r) {
   )
 }
 
+const toDbRel = (r) => r.toLowerCase().replace('_of', '')  // PARENT_OF→parent, CHILD_OF→child, SPOUSE→spouse
+const inverseRel = { SPOUSE: 'SPOUSE', PARENT_OF: 'CHILD_OF', CHILD_OF: 'PARENT_OF', SIBLING_OF: 'SIBLING_OF' }
+
 function kinshipPair(refA, refB, relType, evidence, consanguineous = false) {
-  const inverse = { SPOUSE: 'SPOUSE', PARENT_OF: 'CHILD_OF', CHILD_OF: 'PARENT_OF', SIBLING_OF: 'SIBLING_OF' }
-  const inv = inverse[relType]
+  const inv = inverseRel[relType]
+  const dbRel = toDbRel(relType)
+  const dbInv = toDbRel(inv)
   const consCol = relType === 'SPOUSE' ? `, consanguineous` : ''
   const consVal = relType === 'SPOUSE' ? `, ${consanguineous}` : ''
   const ev = q(evidence || null)
   const src = `'${SOURCE_ID}'`
   return (
     `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id${consCol})\n` +
-    `SELECT a.deceased_id, b.deceased_id, '${relType}', 'family_record', 'confirmed', ${ev}, ${src}${consVal}\n` +
+    `SELECT a.deceased_id, b.deceased_id, '${dbRel}', 'family_record', 'confirmed', ${ev}, ${src}${consVal}\n` +
     `FROM deceased a, deceased b WHERE a.mallmann_ref = ${q(refA)} AND b.mallmann_ref = ${q(refB)}\n` +
     `ON CONFLICT DO NOTHING;\n` +
     `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id${consCol})\n` +
-    `SELECT b.deceased_id, a.deceased_id, '${inv}', 'family_record', 'confirmed', ${ev}, ${src}${consVal}\n` +
+    `SELECT b.deceased_id, a.deceased_id, '${dbInv}', 'family_record', 'confirmed', ${ev}, ${src}${consVal}\n` +
     `FROM deceased a, deceased b WHERE a.mallmann_ref = ${q(refA)} AND b.mallmann_ref = ${q(refB)}\n` +
     `ON CONFLICT DO NOTHING;`
   )
