@@ -42,7 +42,7 @@ function personUpsert(r) {
     `  '${CEMETERY_ID}', '${SOURCE_ID}', ${q(r.mallmann_ref)},\n` +
     `  ${q(r.date_of_birth_verbatim)}, ${q(r.date_of_death_verbatim)},\n` +
     `  ${r.date_of_birth_year ?? 'NULL'}, ${r.date_of_death_year ?? 'NULL'}, ${q(r.notes)})\n` +
-    `ON CONFLICT (mallmann_ref) DO UPDATE SET\n${setClauses};\n` +
+    `ON CONFLICT (mallmann_ref) WHERE mallmann_ref IS NOT NULL DO UPDATE SET\n${setClauses};\n` +
     `INSERT INTO deceased_sources (\n` +
     `  deceased_id, source_id, source_type,\n` +
     `  date_of_birth_verbatim, date_of_death_verbatim,\n` +
