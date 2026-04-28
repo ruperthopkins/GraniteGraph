@@ -113,7 +113,7 @@ ${schema}`,
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 8192,
+        max_tokens: 16000,
         messages: [{ role: 'user', content: userContent }],
       }),
     })
@@ -126,16 +126,16 @@ ${schema}`,
     const data = await response.json()
     if (data.error) return res.status(400).json({ error: data.error.message })
 
-    const raw = data.content?.[0]?.text ?? ''
+    const raw = data.content?.filter(b => b.type === 'text').map(b => b.text).join('') ?? ''
 
     // Try several strategies to extract JSON from whatever Claude returned
     let parsed = null
+    const first = raw.indexOf('{')
+    const last  = raw.lastIndexOf('}')
     const candidates = [
       raw.trim(),
-      // strip markdown fences anywhere in the string
       raw.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim(),
-      // extract first {...} block
-      (raw.match(/\{[\s\S]*\}/) || [])[0],
+      first !== -1 && last > first ? raw.slice(first, last + 1) : null,
     ].filter(Boolean)
 
     for (const candidate of candidates) {
