@@ -224,7 +224,7 @@ function SectionCard({ section, familyName, index, onToggle, enabled, onUpdate }
         <span style={{ background: '#1e3a5f', color: '#60a5fa', borderRadius: 4, padding: '2px 8px', fontWeight: 700, fontSize: 13, fontFamily: 'monospace', minWidth: 28, textAlign: 'center' }}>
           {section.section_id}
         </span>
-        <span style={{ flex: 1, color: '#f1f5f9', fontWeight: 600 }}>{head.first_name} {head.last_name}</span>
+        <span style={{ flex: 1, color: '#f1f5f9', fontWeight: 600 }}>{[head.first_name, head.middle_name, head.last_name].filter(Boolean).join(' ')}</span>
         <span style={{ color: '#64748b', fontSize: 12 }}>{head.date_of_birth_year ?? '?'}–{head.date_of_death_year ?? '?'}</span>
         <span style={{ color: '#64748b', fontSize: 12 }}>{spouses.length} spouse{spouses.length !== 1 ? 's' : ''}, {children.length} ch</span>
         <button onClick={e => { e.stopPropagation(); onToggle(index) }}
@@ -280,6 +280,9 @@ function SectionCard({ section, familyName, index, onToggle, enabled, onUpdate }
                 <label style={{ color: '#64748b', fontSize: 11 }}>First
                   <div><EditText value={sp.first_name} onChange={v => updateSpouse(si, 'first_name', v)} /></div>
                 </label>
+                <label style={{ color: '#64748b', fontSize: 11 }}>Middle
+                  <div><EditText value={sp.middle_name} onChange={v => updateSpouse(si, 'middle_name', v)} placeholder="—" /></div>
+                </label>
                 <label style={{ color: '#64748b', fontSize: 11 }}>Last
                   <div><EditText value={sp.last_name} onChange={v => updateSpouse(si, 'last_name', v)} /></div>
                 </label>
@@ -309,6 +312,7 @@ function SectionCard({ section, familyName, index, onToggle, enabled, onUpdate }
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 13, alignItems: 'baseline' }}>
                   <EditText value={ch.first_name} onChange={v => updateChild(ci, 'first_name', v)} placeholder="first" />
+                  {ch.middle_name && <EditText value={ch.middle_name} onChange={v => updateChild(ci, 'middle_name', v)} style={{ color: '#94a3b8' }} />}
                   <EditText value={ch.last_name} onChange={v => updateChild(ci, 'last_name', v)} placeholder="last" style={{ color: '#94a3b8' }} />
                   <span style={{ color: '#475569', fontSize: 11 }}>
                     <EditYear value={ch.date_of_birth_year} onChange={v => updateChild(ci, 'date_of_birth_year', v)} />
