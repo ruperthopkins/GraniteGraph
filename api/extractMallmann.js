@@ -98,6 +98,7 @@ MALLMANN STRUCTURE RULES:
 11. spouse_seq on each child: infer which parent's spouse (1, 2…) based on birth dates vs the spouse's death date. If only one spouse or unclear, use spouse_seq:1.
 12. Abbreviations: b.=born, d.=died, m.=married, s.=son of, da.=daughter of, ae.=aged, ch.=children, wid.=widow, d.a.p.=died without issue, d.unm.=died unmarried.
 13. For the head's parent_section_id: if the text says "s. [Father] and [Mother] ([Maiden]) [Surname]" and that father appears as a section head with a known ID, record that section_id. Otherwise null.
+15. MIDDLE NAMES: When a person's given name contains two parts before the surname, split them — first_name = first given name, middle_name = second given name or initial. Examples: "George Gilbert Hopkins" → first_name:"George", middle_name:"Gilbert"; "Hannah Y. Hopkins" → first_name:"Hannah", middle_name:"Y". Apply this to section heads, spouses, and children alike.
 14. DATE PARSING FOR CHILDREN — this is critical:
     • "b. [date]; m. [date], [SpouseName]" → date after "b." = date_of_birth_verbatim, date after "m." is a MARRIAGE date NOT a death date — set date_of_death_verbatim:null and put "m. [date], [SpouseName]" in notes.
     • "b. [date], d. [date]" → date after "b." = date_of_birth_verbatim, date after "d." = date_of_death_verbatim.
