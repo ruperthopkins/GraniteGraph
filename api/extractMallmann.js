@@ -95,9 +95,15 @@ MALLMANN STRUCTURE RULES:
 8. Asterisked children (asterisk before name) → child_type:"asterisked"; resolve the footnote at the bottom of the section (e.g. "(*) see No. 39") to get the section number, then mallmann_ref = "${familyName}_{resolved_number}"
 9. Unnumbered children (no prefix) → child_type:"unnumbered"
 10. CONSANGUINEOUS: set consanguineous:true ONLY when BOTH the section head's name AND the spouse's name are typeset in SMALL CAPITALS. An asterisk alone does NOT mean consanguineous.
-11. spouse_seq on each child: infer which parent's spouse based on birth dates. If child born before first wife's death → spouse_seq:1. If born after → spouse_seq:2, etc. If only one spouse or unclear, use spouse_seq:1.
+11. spouse_seq on each child: infer which parent's spouse (1, 2…) based on birth dates vs the spouse's death date. If only one spouse or unclear, use spouse_seq:1.
 12. Abbreviations: b.=born, d.=died, m.=married, s.=son of, da.=daughter of, ae.=aged, ch.=children, wid.=widow, d.a.p.=died without issue, d.unm.=died unmarried.
 13. For the head's parent_section_id: if the text says "s. [Father] and [Mother] ([Maiden]) [Surname]" and that father appears as a section head with a known ID, record that section_id. Otherwise null.
+14. DATE PARSING FOR CHILDREN — this is critical:
+    • "b. [date]; m. [date], [SpouseName]" → date after "b." = date_of_birth_verbatim, date after "m." is a MARRIAGE date NOT a death date — set date_of_death_verbatim:null and put "m. [date], [SpouseName]" in notes.
+    • "b. [date], d. [date]" → date after "b." = date_of_birth_verbatim, date after "d." = date_of_death_verbatim.
+    • The semicolon (;) before "m." is Mallmann's separator between birth and marriage — never treat a marriage date as a death date.
+    • If a spouse name follows the marriage date (e.g. "m. Oct. 17, 1849, J. Bryan Marshall"), include the full marriage note in the notes field: "m. Oct. 17, 1849, J. Bryan Marshall".
+    • Only set date_of_death_verbatim when the text explicitly contains "d." followed by a date.
 
 ${schema}`,
     },

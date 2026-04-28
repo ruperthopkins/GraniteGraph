@@ -316,7 +316,7 @@ function SectionCard({ section, familyName, index, onToggle, enabled, onUpdate }
                     <EditYear value={ch.date_of_death_year} onChange={v => updateChild(ci, 'date_of_death_year', v)} />
                   </span>
                   {ch.spouse_seq != null && ch.spouse_seq > 1 && (
-                    <span style={{ fontSize: 10, color: '#94a3b8' }}>by wife {ch.spouse_seq}</span>
+                    <span style={{ fontSize: 10, color: '#94a3b8' }}>by spouse {ch.spouse_seq}</span>
                   )}
                 </div>
                 <div style={{ fontSize: 10, color: '#334155', marginTop: 2 }}>{ch.mallmann_ref}</div>
