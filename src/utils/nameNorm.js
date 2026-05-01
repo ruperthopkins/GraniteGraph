@@ -1,3 +1,49 @@
+const MONTH_NAMES = {
+  jan: 1, january: 1,
+  feb: 2, february: 2,
+  mar: 3, march: 3,
+  apr: 4, april: 4,
+  may: 5,
+  jun: 6, june: 6,
+  jul: 7, july: 7,
+  aug: 8, august: 8,
+  sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10,
+  nov: 11, november: 11,
+  dec: 12, december: 12,
+}
+
+// Parses a verbatim date string into a normalized partial-ISO string.
+// Returns "YYYY-MM-DD", "YYYY-MM", "YYYY", or null.
+// Handles formats like: "Jun 22, 1830", "June 22, 1830", "1830 Jun 22",
+//   "Aug. 2, 1792", "March 28, 1812", "b. 1812 Mar 28", "1830"
+export function parseDate(verbatim) {
+  if (!verbatim) return null
+  let s = String(verbatim).trim()
+  // Strip leading qualifiers: b., d., m., ca., c., abt., circa
+  s = s.replace(/^(ca?\.?|abt\.?|circa|[bdmc]\.)\s*/i, '')
+
+  const yearMatch = s.match(/\b(1[5-9]\d\d|20\d\d)\b/)
+  if (!yearMatch) return null
+  const year = yearMatch[1]
+
+  const wordMatch = s.match(/\b([a-zA-Z]+)\.?\b/)
+  let month = null
+  if (wordMatch) {
+    const key = wordMatch[1].toLowerCase()
+    month = MONTH_NAMES[key] ?? null
+  }
+  if (!month) return year
+
+  const noYear = s.replace(yearMatch[0], '')
+  const noMonth = noYear.replace(wordMatch[0], '')
+  const dayMatch = noMonth.match(/\b([12]?\d)\b/)
+  if (!dayMatch) return `${year}-${String(month).padStart(2, '0')}`
+  const day = parseInt(dayMatch[1], 10)
+  if (day < 1 || day > 31) return `${year}-${String(month).padStart(2, '0')}`
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
 export const FIRST_NAME_MAP = {
   'jno': 'John',
   'wm': 'William',
@@ -97,13 +143,41 @@ export function matchScore(a, b) {
     if (ma && mb && ma === mb) score += 15   // same maiden name on both
   }
 
-  // Birth year proximity
-  const bayA = a.date_of_birth_year, bayB = b.date_of_birth_year
-  if (bayA && bayB && Math.abs(bayA - bayB) <= 2) score += 10
+  // Birth date — use parsed precision when available, fall back to year integer
+  const pbA = a.date_of_birth_parsed || parseDate(a.date_of_birth_verbatim)
+  const pbB = b.date_of_birth_parsed || parseDate(b.date_of_birth_verbatim)
+  if (pbA && pbB) {
+    const len = Math.min(pbA.length, pbB.length)
+    if (pbA.slice(0, len) === pbB.slice(0, len)) {
+      score += pbA.length >= 10 && pbB.length >= 10 ? 20  // full date match
+             : pbA.length >= 7  && pbB.length >= 7  ? 15  // year+month match
+             : 10                                          // year only match
+    } else {
+      const yA = parseInt(pbA, 10), yB = parseInt(pbB, 10)
+      if (Math.abs(yA - yB) <= 1) score += 5
+    }
+  } else {
+    const bayA = a.date_of_birth_year, bayB = b.date_of_birth_year
+    if (bayA && bayB && Math.abs(bayA - bayB) <= 2) score += 10
+  }
 
-  // Death year proximity
-  const dayA = a.date_of_death_year, dayB = b.date_of_death_year
-  if (dayA && dayB && Math.abs(dayA - dayB) <= 2) score += 10
+  // Death date — same logic
+  const pdA = a.date_of_death_parsed || parseDate(a.date_of_death_verbatim)
+  const pdB = b.date_of_death_parsed || parseDate(b.date_of_death_verbatim)
+  if (pdA && pdB) {
+    const len = Math.min(pdA.length, pdB.length)
+    if (pdA.slice(0, len) === pdB.slice(0, len)) {
+      score += pdA.length >= 10 && pdB.length >= 10 ? 20
+             : pdA.length >= 7  && pdB.length >= 7  ? 15
+             : 10
+    } else {
+      const dA = parseInt(pdA, 10), dB = parseInt(pdB, 10)
+      if (Math.abs(dA - dB) <= 1) score += 5
+    }
+  } else {
+    const dayA = a.date_of_death_year, dayB = b.date_of_death_year
+    if (dayA && dayB && Math.abs(dayA - dayB) <= 2) score += 10
+  }
 
   // Church event date match (catches same-day marriages across name variants)
   if (a.church_event_date_verbatim && b.church_event_date_verbatim &&

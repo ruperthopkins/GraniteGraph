@@ -27,7 +27,8 @@ function personUpsert(r) {
   const updateCols = [
     'first_name', 'middle_name', 'last_name', 'maiden_name', 'gender',
     'date_of_birth_verbatim', 'date_of_death_verbatim',
-    'date_of_birth_year', 'date_of_death_year', 'notes',
+    'date_of_birth_year', 'date_of_death_year',
+    'date_of_birth_parsed', 'date_of_death_parsed', 'notes',
   ]
   const setClauses = updateCols.map(c => `  ${c} = COALESCE(deceased.${c}, EXCLUDED.${c})`).join(',\n')
   return (
@@ -36,12 +37,14 @@ function personUpsert(r) {
     `  first_name, middle_name, last_name, maiden_name, gender,\n` +
     `  cemetery_id, source_id, mallmann_ref,\n` +
     `  date_of_birth_verbatim, date_of_death_verbatim,\n` +
-    `  date_of_birth_year, date_of_death_year, notes)\n` +
+    `  date_of_birth_year, date_of_death_year,\n` +
+    `  date_of_birth_parsed, date_of_death_parsed, notes)\n` +
     `VALUES (\n` +
     `  ${q(r.first_name)}, ${q(r.middle_name)}, ${q(r.last_name)}, ${q(r.maiden_name)}, ${q(r.gender)},\n` +
     `  '${CEMETERY_ID}', '${SOURCE_ID}', ${q(r.mallmann_ref)},\n` +
     `  ${q(r.date_of_birth_verbatim)}, ${q(r.date_of_death_verbatim)},\n` +
-    `  ${r.date_of_birth_year ?? 'NULL'}, ${r.date_of_death_year ?? 'NULL'}, ${q(r.notes)})\n` +
+    `  ${r.date_of_birth_year ?? 'NULL'}, ${r.date_of_death_year ?? 'NULL'},\n` +
+    `  _parse_hist_date(${q(r.date_of_birth_verbatim)}), _parse_hist_date(${q(r.date_of_death_verbatim)}), ${q(r.notes)})\n` +
     `ON CONFLICT (mallmann_ref) WHERE mallmann_ref IS NOT NULL DO UPDATE SET\n${setClauses};\n` +
     `INSERT INTO deceased_sources (\n` +
     `  deceased_id, source_id, source_type,\n` +
@@ -67,11 +70,11 @@ function kinshipPair(refA, refB, relType, evidence, consanguineous = false) {
   const src = `'${SOURCE_ID}'`
   return (
     `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id${consCol})\n` +
-    `SELECT a.deceased_id, b.deceased_id, '${dbRel}', 'family_record', 'confirmed', ${ev}, ${src}${consVal}\n` +
+    `SELECT a.deceased_id, b.deceased_id, '${dbInv}', 'family_record', 'confirmed', ${ev}, ${src}${consVal}\n` +
     `FROM deceased a, deceased b WHERE a.mallmann_ref = ${q(refA)} AND b.mallmann_ref = ${q(refB)}\n` +
     `ON CONFLICT DO NOTHING;\n` +
     `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id${consCol})\n` +
-    `SELECT b.deceased_id, a.deceased_id, '${dbInv}', 'family_record', 'confirmed', ${ev}, ${src}${consVal}\n` +
+    `SELECT b.deceased_id, a.deceased_id, '${dbRel}', 'family_record', 'confirmed', ${ev}, ${src}${consVal}\n` +
     `FROM deceased a, deceased b WHERE a.mallmann_ref = ${q(refA)} AND b.mallmann_ref = ${q(refB)}\n` +
     `ON CONFLICT DO NOTHING;`
   )

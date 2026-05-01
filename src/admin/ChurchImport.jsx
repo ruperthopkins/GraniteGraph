@@ -458,7 +458,8 @@ export default function ChurchImport({ onBack }) {
           `${q(p.gender)}, '${CEMETERY_ID}', '${srcId}', ` +
           `${q(p.event_type)}, ${q(p.event_date_verbatim)}, ${p.event_year || 'NULL'}, ` +
           `${q(p.date_of_birth_verbatim)}, ${q(p.date_of_death_verbatim)}, ` +
-          `${p.date_of_birth_year || 'NULL'}, ${p.date_of_death_year || 'NULL'}, ${q(p.notes)})`
+          `${p.date_of_birth_year || 'NULL'}, ${p.date_of_death_year || 'NULL'}, ` +
+          `_parse_hist_date(${q(p.date_of_birth_verbatim)}), _parse_hist_date(${q(p.date_of_death_verbatim)}), ${q(p.notes)})`
         )
         sourceInserts.push(
           `INSERT INTO deceased_sources (deceased_id, source_id, source_type,\n` +
@@ -494,33 +495,58 @@ export default function ChurchImport({ onBack }) {
       const bId = resolveId(r.person_b)
       const aYear = r.person_a_birth_year ? `AND a.date_of_birth_year = ${r.person_a_birth_year}` : ''
       const bYear = r.person_b_birth_year ? `AND b.date_of_birth_year = ${r.person_b_birth_year}` : ''
-      const relType = r.relationship.toLowerCase().replace('_of', '')
+      // AI convention: person_a RELATIONSHIP person_b (e.g. CHILD_OF means a is child of b)
+      // PersonView convention: (primary, relative, type) = "relative IS type TO primary"
+      // So PARENT_OF(a,b) → (a,b,'child') + (b,a,'parent')
+      //    CHILD_OF(a,b)  → (a,b,'parent') + (b,a,'child')
+      const relTypeMap = { PARENT_OF: 'child', CHILD_OF: 'parent', SPOUSE: 'spouse', SIBLING_OF: 'sibling' }
+      const invTypeMap = { PARENT_OF: 'parent', CHILD_OF: 'child', SPOUSE: 'spouse', SIBLING_OF: 'sibling' }
+      const relType = relTypeMap[r.relationship] || r.relationship.toLowerCase().replace('_of', '')
+      const invType = invTypeMap[r.relationship] || relType
       const conf = r.confidence === 'high' ? 'confirmed' : 'probable'
+      const cols = `primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id`
 
       if (aId && bId) {
         return (
-          `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id)\n` +
+          `INSERT INTO kinship (${cols})\n` +
           `VALUES ('${aId}', '${bId}', '${relType}', 'church_record', '${conf}', ${q(r.evidence)}, '${srcId}')\n` +
+          `ON CONFLICT DO NOTHING;\n` +
+          `INSERT INTO kinship (${cols})\n` +
+          `VALUES ('${bId}', '${aId}', '${invType}', 'church_record', '${conf}', ${q(r.evidence)}, '${srcId}')\n` +
           `ON CONFLICT DO NOTHING;`
         )
       } else if (aId) {
         return (
-          `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id)\n` +
+          `INSERT INTO kinship (${cols})\n` +
           `SELECT '${aId}', b.deceased_id, '${relType}', 'church_record', '${conf}', ${q(r.evidence)}, '${srcId}'\n` +
+          `FROM deceased b WHERE b.first_name ILIKE '${esc(b.first)}' AND b.last_name ILIKE '${esc(b.last)}' ${bYear}\n` +
+          `LIMIT 1\nON CONFLICT DO NOTHING;\n` +
+          `INSERT INTO kinship (${cols})\n` +
+          `SELECT b.deceased_id, '${aId}', '${invType}', 'church_record', '${conf}', ${q(r.evidence)}, '${srcId}'\n` +
           `FROM deceased b WHERE b.first_name ILIKE '${esc(b.first)}' AND b.last_name ILIKE '${esc(b.last)}' ${bYear}\n` +
           `LIMIT 1\nON CONFLICT DO NOTHING;`
         )
       } else if (bId) {
         return (
-          `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id)\n` +
+          `INSERT INTO kinship (${cols})\n` +
           `SELECT a.deceased_id, '${bId}', '${relType}', 'church_record', '${conf}', ${q(r.evidence)}, '${srcId}'\n` +
+          `FROM deceased a WHERE a.first_name ILIKE '${esc(a.first)}' AND a.last_name ILIKE '${esc(a.last)}' ${aYear}\n` +
+          `LIMIT 1\nON CONFLICT DO NOTHING;\n` +
+          `INSERT INTO kinship (${cols})\n` +
+          `SELECT '${bId}', a.deceased_id, '${invType}', 'church_record', '${conf}', ${q(r.evidence)}, '${srcId}'\n` +
           `FROM deceased a WHERE a.first_name ILIKE '${esc(a.first)}' AND a.last_name ILIKE '${esc(a.last)}' ${aYear}\n` +
           `LIMIT 1\nON CONFLICT DO NOTHING;`
         )
       } else {
         return (
-          `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id)\n` +
+          `INSERT INTO kinship (${cols})\n` +
           `SELECT a.deceased_id, b.deceased_id, '${relType}', 'church_record', '${conf}', ${q(r.evidence)}, '${srcId}'\n` +
+          `FROM deceased a, deceased b\n` +
+          `WHERE a.first_name ILIKE '${esc(a.first)}' AND a.last_name ILIKE '${esc(a.last)}' ${aYear}\n` +
+          `  AND b.first_name ILIKE '${esc(b.first)}' AND b.last_name ILIKE '${esc(b.last)}' ${bYear}\n` +
+          `ON CONFLICT DO NOTHING;\n` +
+          `INSERT INTO kinship (${cols})\n` +
+          `SELECT b.deceased_id, a.deceased_id, '${invType}', 'church_record', '${conf}', ${q(r.evidence)}, '${srcId}'\n` +
           `FROM deceased a, deceased b\n` +
           `WHERE a.first_name ILIKE '${esc(a.first)}' AND a.last_name ILIKE '${esc(a.last)}' ${aYear}\n` +
           `  AND b.first_name ILIKE '${esc(b.first)}' AND b.last_name ILIKE '${esc(b.last)}' ${bYear}\n` +
@@ -542,7 +568,8 @@ export default function ChurchImport({ onBack }) {
         `INSERT INTO deceased`,
         `  (first_name, middle_name, last_name, maiden_name, gender, cemetery_id, source_id,`,
         `   church_event_type, church_event_date_verbatim, church_event_year,`,
-        `   date_of_birth_verbatim, date_of_death_verbatim, date_of_birth_year, date_of_death_year, notes)`,
+        `   date_of_birth_verbatim, date_of_death_verbatim, date_of_birth_year, date_of_death_year,`,
+        `   date_of_birth_parsed, date_of_death_parsed, notes)`,
         `VALUES`,
         deceasedInserts.join(',\n'),
         `ON CONFLICT DO NOTHING;`,

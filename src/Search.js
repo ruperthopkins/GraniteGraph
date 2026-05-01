@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from './supabaseClient'
+import { matchScore } from './utils/nameNorm'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
@@ -67,15 +68,19 @@ export default function Search({ onLogin, onHome }) {
     }
 
     const { data, error } = await dbQuery
-      .order('last_name')
-      .order('first_name')
       .limit(50)
 
     if (error) {
       console.error(error)
       alert('Search error: ' + error.message)
     } else {
-      setResults(data || [])
+      const queryPerson = terms.length === 1
+        ? { last_name: terms[0] }
+        : { first_name: terms.slice(0, -1).join(' '), last_name: terms[terms.length - 1] }
+      const scored = (data || [])
+        .map(r => ({ record: r, score: matchScore(queryPerson, r) }))
+        .sort((a, b) => b.score - a.score)
+      setResults(scored.map(s => s.record))
     }
     setSearching(false)
   }
