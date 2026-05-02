@@ -45,7 +45,7 @@ function completeness(person) {
 // ── Data loading ──────────────────────────────────────────────────────────────
 const SCAN_SELECT = [
   'deceased_id', 'first_name', 'middle_name', 'last_name', 'maiden_name',
-  'full_name', 'title', 'biography', 'notes', 'gender',
+  'title', 'biography', 'notes', 'gender',
   'date_of_birth_verbatim', 'date_of_death_verbatim',
   'date_of_birth_parsed', 'date_of_death_parsed',
   'church_event_type', 'church_event_date_verbatim',
@@ -107,7 +107,7 @@ function ScoreBadge({ score }) {
 
 function PersonCard({ person, label, isChosen, onChoose }) {
   const displayName = [person.title, person.first_name, person.middle_name, person.last_name]
-    .filter(Boolean).join(' ') || person.full_name || '(unnamed)'
+    .filter(Boolean).join(' ') || '(unnamed)'
   const score = completeness(person)
 
   return (
