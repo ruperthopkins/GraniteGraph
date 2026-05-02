@@ -4,7 +4,7 @@
 
 import { useState, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
-import { normaliseName, matchScore, matchScoreDetails } from '../utils/nameNorm'
+import { normaliseName, matchScoreDetails } from '../utils/nameNorm'
 import { mergePersons } from '../utils/mergePersons'
 
 const RELATIONSHIP_TYPES = ['spouse', 'parent', 'child', 'sibling', 'unknown']
