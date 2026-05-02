@@ -109,6 +109,15 @@ export async function mergePersons(supabase, canonicalId, duplicateId, fieldOver
       else { existingPairs.add(key); log.push(`Re-pointed relative kinship ${row.kinship_id}`) }
     }
 
+    // Step 3 cleanup: delete any kinship rows that still reference the duplicate.
+    // This catches rows where the UPDATE failed due to a unique constraint
+    // (canonical already had an equivalent relationship) — those rows were only
+    // warned about, not deleted, leaving dangling FK references that block step 5.
+    const { error: ek1 } = await supabase.from('kinship').delete().eq('primary_deceased_id', duplicateId)
+    if (ek1) log.push(`Kinship cleanup warning (primary): ${ek1.message}`)
+    const { error: ek2 } = await supabase.from('kinship').delete().eq('relative_deceased_id', duplicateId)
+    if (ek2) log.push(`Kinship cleanup warning (relative): ${ek2.message}`)
+
     // Step 4: apply admin-chosen field overrides onto canonical
     if (Object.keys(fieldOverrides).length > 0) {
       const { error } = await supabase
