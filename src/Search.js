@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from './supabaseClient'
-import { matchScore } from './utils/nameNorm'
+import { matchScore, parseDate } from './utils/nameNorm'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
@@ -11,6 +11,16 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
+
+const MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function fmtDate(verbatim, parsed) {
+  const p = parsed || parseDate(verbatim)
+  if (!p) return verbatim || null
+  const parts = p.split('-')
+  if (parts.length === 3) return `${parseInt(parts[2])} ${MONTH_ABBR[parseInt(parts[1])]} ${parts[0]}`
+  if (parts.length === 2) return `${MONTH_ABBR[parseInt(parts[1])]} ${parts[0]}`
+  return parts[0]
+}
 
 const stoneIcon = new L.Icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
@@ -194,8 +204,8 @@ export default function Search({ onLogin, onHome }) {
                       <p className="font-bold text-white">{record.full_name}</p>
                       {record.maiden_name && <p className="text-gray-300 text-sm">nee {record.maiden_name}</p>}
                       <div className="flex gap-3 mt-1">
-                        {record.date_of_birth_verbatim && <p className="text-gray-300 text-xs">b. {record.date_of_birth_verbatim}</p>}
-                        {record.date_of_death_verbatim && <p className="text-gray-300 text-xs">d. {record.date_of_death_verbatim}</p>}
+                        {record.date_of_birth_verbatim && <p className="text-gray-300 text-xs">b. {fmtDate(record.date_of_birth_verbatim, record.date_of_birth_parsed)}</p>}
+                        {record.date_of_death_verbatim && <p className="text-gray-300 text-xs">d. {fmtDate(record.date_of_death_verbatim, record.date_of_death_parsed)}</p>}
                       </div>
                     </div>
                     <div className="text-right">
@@ -236,13 +246,13 @@ export default function Search({ onLogin, onHome }) {
                 {selected.date_of_birth_verbatim && (
                   <div>
                     <p className="text-gray-400 text-xs">Born</p>
-                    <p className="text-white text-sm">{selected.date_of_birth_verbatim}</p>
+                    <p className="text-white text-sm">{fmtDate(selected.date_of_birth_verbatim, selected.date_of_birth_parsed)}</p>
                   </div>
                 )}
                 {selected.date_of_death_verbatim && (
                   <div>
                     <p className="text-gray-400 text-xs">Died</p>
-                    <p className="text-white text-sm">{selected.date_of_death_verbatim}</p>
+                    <p className="text-white text-sm">{fmtDate(selected.date_of_death_verbatim, selected.date_of_death_parsed)}</p>
                   </div>
                 )}
               </div>

@@ -307,7 +307,7 @@ export default function PersonView({ onBack }) {
       .select('*')
       .or(filters.join(','))
       .neq('deceased_id', person.deceased_id)
-      .limit(60)
+      .limit(300)
     if (error) {
       setDupCandidates([{ _error: error.message }])
       setFindingDups(false)
