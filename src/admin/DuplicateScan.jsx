@@ -23,6 +23,27 @@ function pairKey(id1, id2) {
   return id1 < id2 ? `${id1}|${id2}` : `${id2}|${id1}`
 }
 
+// Source metadata — keyed by source_id UUID
+const SOURCE_META = {
+  '800c5884-d180-42b0-9ca6-4e05c8fd64cb': { label: 'Church record', priority: 3 },
+  '9cb5c6d4-83b2-4ec6-ae59-72d2d7eb1155': { label: 'Mallmann 1899',  priority: 2 },
+}
+function sourceLabel(person) {
+  return SOURCE_META[person.source_id]?.label ?? (person.mallmann_ref ? 'Mallmann 1899' : null)
+}
+function sourcePriority(person) {
+  return SOURCE_META[person.source_id]?.priority ?? 1
+}
+
+// Returns the UUID of the preferred primary: higher source priority wins,
+// then more complete fields, then Record A as tiebreaker.
+function suggestedPrimary(a, b) {
+  const pa = sourcePriority(a), pb = sourcePriority(b)
+  if (pa !== pb) return pa > pb ? a.deceased_id : b.deceased_id
+  const ca = completeness(a), cb = completeness(b)
+  return ca >= cb ? a.deceased_id : b.deceased_id
+}
+
 // Fields to fill from secondary onto primary where primary is null/empty
 const FILLABLE = [
   'date_of_birth_verbatim', 'date_of_death_verbatim',
@@ -45,7 +66,7 @@ function completeness(person) {
 // ── Data loading ──────────────────────────────────────────────────────────────
 const SCAN_SELECT = [
   'deceased_id', 'first_name', 'middle_name', 'last_name', 'maiden_name',
-  'title', 'biography', 'notes', 'gender',
+  'title', 'biography', 'notes', 'gender', 'source_id', 'mallmann_ref',
   'date_of_birth_verbatim', 'date_of_death_verbatim',
   'date_of_birth_parsed', 'date_of_death_parsed',
   'church_event_type', 'church_event_date_verbatim',
@@ -120,7 +141,14 @@ function PersonCard({ person, label, isChosen, onChoose }) {
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <p style={{ fontSize: 10, color: 'var(--color-text-tertiary)', margin: 0, textTransform: 'uppercase', letterSpacing: 1 }}>{label}</p>
-        <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>{score} field{score !== 1 ? 's' : ''}</span>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {sourceLabel(person) && (
+            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, border: '0.5px solid var(--color-border-info)', color: 'var(--color-text-info)' }}>
+              {sourceLabel(person)}
+            </span>
+          )}
+          <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>{score} field{score !== 1 ? 's' : ''}</span>
+        </div>
       </div>
       <p style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>{displayName}</p>
       {person.maiden_name && <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: 0 }}>nee {person.maiden_name}</p>}
@@ -173,6 +201,15 @@ export default function DuplicateScan({ onBack }) {
       setPhase('done')
     }
   }, [pairs.length, idx, phase])
+
+  // Auto-select the suggested primary whenever the pair changes
+  useEffect(() => {
+    if (phase === 'reviewing' && pairs[idx]) {
+      const { a, b } = pairs[idx]
+      setPrimaryId(suggestedPrimary(a, b))
+      setMergeLog(null)
+    }
+  }, [idx, phase]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const startScan = async () => {
     setPhase('loading')
@@ -343,6 +380,16 @@ export default function DuplicateScan({ onBack }) {
                 onChoose={() => { setPrimaryId(pair.b.deceased_id); setMergeLog(null) }}
               />
             </div>
+
+            {/* Auto-selection hint */}
+            {primaryId && !mergeLog && (() => {
+              const primary = pair.a.deceased_id === primaryId ? pair.a : pair.b
+              const pA = sourcePriority(pair.a), pB = sourcePriority(pair.b)
+              const reason = pA !== pB
+                ? `${sourceLabel(primary) || 'This record'} has higher source priority`
+                : `Record ${pair.a.deceased_id === primaryId ? 'A' : 'B'} has more complete fields`
+              return <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 8 }}>Auto-selected: {reason}. Change with "Keep as primary" above.</p>
+            })()}
 
             {/* Fill-from-secondary preview */}
             {primaryId && !mergeLog && Object.keys(fillPreview).length > 0 && (
