@@ -20,12 +20,12 @@ CREATE POLICY "admins_all" ON dismissed_duplicate_pairs
   USING (
     EXISTS (
       SELECT 1 FROM volunteer_profiles vp
-      WHERE vp.id = auth.uid() AND vp.role = 'admin'
+      WHERE vp.user_id = auth.uid() AND vp.role = 'admin'
     )
   )
   WITH CHECK (
     EXISTS (
       SELECT 1 FROM volunteer_profiles vp
-      WHERE vp.id = auth.uid() AND vp.role = 'admin'
+      WHERE vp.user_id = auth.uid() AND vp.role = 'admin'
     )
   );
