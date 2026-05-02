@@ -4,7 +4,7 @@
 
 import { useState, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
-import { normaliseName, matchScore } from '../utils/nameNorm'
+import { normaliseName, matchScore, matchScoreDetails } from '../utils/nameNorm'
 import { mergePersons } from '../utils/mergePersons'
 
 const RELATIONSHIP_TYPES = ['spouse', 'parent', 'child', 'sibling', 'unknown']
@@ -289,26 +289,40 @@ export default function PersonView({ onBack }) {
     setMergeFieldChoices({})
     setMergeLog(null)
     const norm = normaliseName(person)
-    // Search by last name OR maiden name so cross-name variants (e.g. Ferris/Hopkins) surface
-    const nameFilter = norm.maiden_name
-      ? `last_name.ilike.%${norm.last_name}%,maiden_name.ilike.%${norm.last_name}%,last_name.ilike.%${norm.maiden_name}%`
-      : `last_name.ilike.%${norm.last_name}%,maiden_name.ilike.%${norm.last_name}%`
+    // Include full_name fallback so records imported without separate first/last fields
+    // (e.g. original Seaview cemetery data) are still found by the query.
+    const lastName = norm.last_name
+    const maidenName = norm.maiden_name
+    const filters = [
+      `last_name.ilike.%${lastName}%`,
+      `maiden_name.ilike.%${lastName}%`,
+      `full_name.ilike.%${lastName}%`,
+    ]
+    if (maidenName) {
+      filters.push(`last_name.ilike.%${maidenName}%`)
+      filters.push(`full_name.ilike.%${maidenName}%`)
+    }
     const { data, error } = await supabase
       .from('v_deceased_search')
       .select('*')
-      .or(nameFilter)
+      .or(filters.join(','))
       .neq('deceased_id', person.deceased_id)
-      .limit(40)
+      .limit(60)
     if (error) {
       setDupCandidates([{ _error: error.message }])
       setFindingDups(false)
       return
     }
-    const all = (data || []).map(r => ({ record: r, score: matchScore(person, r) }))
-    const scored = all.filter(c => c.score >= 50).sort((a, b) => b.score - a.score).slice(0, 8)
-    // Surface a diagnostic if query returned rows but none scored high enough
+    const all = (data || []).map(r => {
+      const { score, reasons } = matchScoreDetails(person, r)
+      return { record: r, score, reasons }
+    })
+    const THRESHOLD = 40
+    const scored = all.filter(c => c.score >= THRESHOLD).sort((a, b) => b.score - a.score).slice(0, 10)
     if (data && data.length > 0 && scored.length === 0) {
-      setDupCandidates([{ _debug: `${data.length} records found for last name "${norm.last_name}" but none scored ≥50. Top score: ${Math.max(...all.map(c => c.score))}` }])
+      const top = Math.max(...all.map(c => c.score))
+      const topMatch = all.find(c => c.score === top)
+      setDupCandidates([{ _debug: `${data.length} records found but none scored ≥${THRESHOLD}. Top score: ${top}${topMatch ? ` (${topMatch.record.full_name})` : ''}` }])
     } else {
       setDupCandidates(scored)
     }
@@ -845,11 +859,11 @@ export default function PersonView({ onBack }) {
 
                   {dupCandidates.length > 0 && !mergeLog && !dupCandidates[0]?._error && !dupCandidates[0]?._debug && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {dupCandidates.map(({ record: cand, score }) => {
+                      {dupCandidates.map(({ record: cand, score, reasons }) => {
                         const isTarget = mergeTarget?.deceased_id === cand.deceased_id
                         const scoreColor = score >= 80
                           ? 'var(--color-text-danger)'
-                          : score >= 65
+                          : score >= 60
                             ? 'var(--color-text-warning)'
                             : 'var(--color-text-secondary)'
                         return (
@@ -865,7 +879,7 @@ export default function PersonView({ onBack }) {
                                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                                   <p style={{ fontWeight: 500, fontSize: 13, margin: 0 }}>{cand.full_name}</p>
                                   <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 99, border: `0.5px solid ${scoreColor}`, color: scoreColor }}>
-                                    {score}% match
+                                    {score} pts
                                   </span>
                                 </div>
                                 <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
@@ -873,6 +887,15 @@ export default function PersonView({ onBack }) {
                                   {cand.date_of_death_verbatim && <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>d. {cand.date_of_death_verbatim}</span>}
                                   {cand.church_event_type && <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{cand.church_event_type}</span>}
                                 </div>
+                                {reasons && reasons.length > 0 && (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 6px', marginTop: 5 }}>
+                                    {reasons.map((r, i) => (
+                                      <span key={i} style={{ fontSize: 10, color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap' }}>
+                                        {r.label}: {r.detail} <span style={{ color: scoreColor }}>+{r.points}</span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                               {!isTarget && (
                                 <button onClick={() => { setMergeTarget(cand); setMergeFieldChoices({}) }} style={{ fontSize: 11, padding: '3px 10px' }}>

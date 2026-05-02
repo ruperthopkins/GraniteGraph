@@ -74,10 +74,20 @@ export function normToken(token) {
   return stripped.charAt(0).toUpperCase() + stripped.slice(1).toLowerCase()
 }
 
-// Extract first name from full_name if first_name field is absent (e.g. view records)
+// Extract first/last name from full_name when the individual fields are absent
+// (e.g. Seaview cemetery records imported as full_name only)
 function extractFirstName(person) {
   if (person.first_name) return normToken(person.first_name)
   if (person.full_name) return normToken(person.full_name.trim().split(/\s+/)[0])
+  return ''
+}
+
+function extractLastName(person) {
+  if (person.last_name) return person.last_name.charAt(0).toUpperCase() + person.last_name.slice(1).toLowerCase()
+  if (person.full_name) {
+    const parts = person.full_name.trim().split(/\s+/)
+    if (parts.length > 1) return normToken(parts[parts.length - 1])
+  }
   return ''
 }
 
@@ -85,9 +95,7 @@ export function normaliseName(person) {
   return {
     first_name: extractFirstName(person),
     middle_name: normToken(person.middle_name),
-    last_name: person.last_name
-      ? person.last_name.charAt(0).toUpperCase() + person.last_name.slice(1).toLowerCase()
-      : '',
+    last_name: extractLastName(person),
     maiden_name: person.maiden_name
       ? person.maiden_name.charAt(0).toUpperCase() + person.maiden_name.slice(1).toLowerCase()
       : '',
@@ -108,86 +116,140 @@ function levenshtein(a, b) {
   return dp[m][n]
 }
 
-export function matchScore(a, b) {
+// Returns { score, reasons } where reasons is an array of { label, detail, points }.
+// Use this when you need to explain the match to a user.
+export function matchScoreDetails(a, b) {
   const na = normaliseName(a)
   const nb = normaliseName(b)
+  const reasons = []
   let score = 0
 
   const fa = na.first_name.toLowerCase()
   const fb = nb.first_name.toLowerCase()
   const la = na.last_name.toLowerCase()
   const lb = nb.last_name.toLowerCase()
+  const mida = na.middle_name.toLowerCase()
+  const midb = nb.middle_name.toLowerCase()
   const ma = na.maiden_name.toLowerCase()
   const mb = nb.maiden_name.toLowerCase()
 
-  // First name (required signal — no score without it)
+  // First name
   let firstNameScore = 0
   if (fa && fb) {
-    if (fa === fb) firstNameScore = 35
-    else if (fa.startsWith(fb.slice(0, 3)) || fb.startsWith(fa.slice(0, 3)) || levenshtein(fa, fb) <= 2) firstNameScore = 15
+    if (fa === fb) {
+      firstNameScore = 35
+      reasons.push({ label: 'First name', detail: `${na.first_name} = ${nb.first_name}`, points: 35 })
+    } else if (fa.startsWith(fb.slice(0, 3)) || fb.startsWith(fa.slice(0, 3)) || levenshtein(fa, fb) <= 2) {
+      firstNameScore = 15
+      reasons.push({ label: 'First name', detail: `${na.first_name} ≈ ${nb.first_name}`, points: 15 })
+    }
   }
   score += firstNameScore
 
-  // Last name exact or fuzzy
+  // Last name
   if (la && lb) {
-    if (la === lb) score += 25
-    else if (levenshtein(la, lb) <= 2) score += 10
+    if (la === lb) {
+      score += 25
+      reasons.push({ label: 'Last name', detail: `${na.last_name} = ${nb.last_name}`, points: 25 })
+    } else if (levenshtein(la, lb) <= 2) {
+      score += 10
+      reasons.push({ label: 'Last name', detail: `${na.last_name} ≈ ${nb.last_name}`, points: 10 })
+    }
   }
 
-  // Maiden ↔ last cross-match: one record's maiden name is the other's surname.
-  // This is the primary signal for the same woman appearing under different names.
-  // Only award if first names also matched (firstNameScore > 0).
+  // Middle name / initial
+  if (mida && midb && firstNameScore > 0) {
+    if (mida === midb) {
+      score += 10
+      reasons.push({ label: 'Middle name', detail: `${na.middle_name} = ${nb.middle_name}`, points: 10 })
+    } else if (mida[0] === midb[0]) {
+      score += 5
+      reasons.push({ label: 'Middle initial', detail: `${mida[0].toUpperCase()} = ${midb[0].toUpperCase()}`, points: 5 })
+    }
+  }
+
+  // Maiden ↔ last cross-match
   if (firstNameScore > 0) {
-    if (ma && lb && ma === lb) score += 25   // a.maiden = b.last
-    if (mb && la && mb === la) score += 25   // b.maiden = a.last
-    if (ma && mb && ma === mb) score += 15   // same maiden name on both
+    if (ma && lb && ma === lb) {
+      score += 25; reasons.push({ label: 'Maiden = last name', detail: `${na.maiden_name} = ${nb.last_name}`, points: 25 })
+    }
+    if (mb && la && mb === la) {
+      score += 25; reasons.push({ label: 'Maiden = last name', detail: `${nb.maiden_name} = ${na.last_name}`, points: 25 })
+    }
+    if (ma && mb && ma === mb) {
+      score += 15; reasons.push({ label: 'Maiden name', detail: `${na.maiden_name} = ${nb.maiden_name}`, points: 15 })
+    }
   }
 
-  // Birth date — use parsed precision when available, fall back to year integer
+  // Birth date — reward matches, penalise confirmed mismatches
+  // Penalty prevents same-name different-generation records from appearing as duplicates.
   const pbA = a.date_of_birth_parsed || parseDate(a.date_of_birth_verbatim)
   const pbB = b.date_of_birth_parsed || parseDate(b.date_of_birth_verbatim)
   if (pbA && pbB) {
+    const yA = parseInt(pbA, 10), yB = parseInt(pbB, 10)
     const len = Math.min(pbA.length, pbB.length)
     if (pbA.slice(0, len) === pbB.slice(0, len)) {
-      score += pbA.length >= 10 && pbB.length >= 10 ? 20  // full date match
-             : pbA.length >= 7  && pbB.length >= 7  ? 15  // year+month match
-             : 10                                          // year only match
+      const pts = pbA.length >= 10 && pbB.length >= 10 ? 20 : pbA.length >= 7 && pbB.length >= 7 ? 15 : 10
+      score += pts
+      reasons.push({ label: 'Birth date', detail: `${pbA} = ${pbB}`, points: pts })
+    } else if (Math.abs(yA - yB) <= 1) {
+      score += 5; reasons.push({ label: 'Birth year', detail: `${yA} ≈ ${yB}`, points: 5 })
     } else {
-      const yA = parseInt(pbA, 10), yB = parseInt(pbB, 10)
-      if (Math.abs(yA - yB) <= 1) score += 5
+      score -= 25; reasons.push({ label: 'Birth date mismatch', detail: `${pbA} ≠ ${pbB}`, points: -25 })
     }
   } else {
     const bayA = a.date_of_birth_year, bayB = b.date_of_birth_year
-    if (bayA && bayB && Math.abs(bayA - bayB) <= 2) score += 10
+    if (bayA && bayB) {
+      if (Math.abs(bayA - bayB) <= 2) {
+        score += 10; reasons.push({ label: 'Birth year', detail: `${bayA} ≈ ${bayB}`, points: 10 })
+      } else {
+        score -= 25; reasons.push({ label: 'Birth year mismatch', detail: `${bayA} ≠ ${bayB}`, points: -25 })
+      }
+    }
   }
 
   // Death date — same logic
   const pdA = a.date_of_death_parsed || parseDate(a.date_of_death_verbatim)
   const pdB = b.date_of_death_parsed || parseDate(b.date_of_death_verbatim)
   if (pdA && pdB) {
+    const dA = parseInt(pdA, 10), dB = parseInt(pdB, 10)
     const len = Math.min(pdA.length, pdB.length)
     if (pdA.slice(0, len) === pdB.slice(0, len)) {
-      score += pdA.length >= 10 && pdB.length >= 10 ? 20
-             : pdA.length >= 7  && pdB.length >= 7  ? 15
-             : 10
+      const pts = pdA.length >= 10 && pdB.length >= 10 ? 20 : pdA.length >= 7 && pdB.length >= 7 ? 15 : 10
+      score += pts
+      reasons.push({ label: 'Death date', detail: `${pdA} = ${pdB}`, points: pts })
+    } else if (Math.abs(dA - dB) <= 1) {
+      score += 5; reasons.push({ label: 'Death year', detail: `${dA} ≈ ${dB}`, points: 5 })
     } else {
-      const dA = parseInt(pdA, 10), dB = parseInt(pdB, 10)
-      if (Math.abs(dA - dB) <= 1) score += 5
+      score -= 25; reasons.push({ label: 'Death date mismatch', detail: `${pdA} ≠ ${pdB}`, points: -25 })
     }
   } else {
     const dayA = a.date_of_death_year, dayB = b.date_of_death_year
-    if (dayA && dayB && Math.abs(dayA - dayB) <= 2) score += 10
+    if (dayA && dayB) {
+      if (Math.abs(dayA - dayB) <= 2) {
+        score += 10; reasons.push({ label: 'Death year', detail: `${dayA} ≈ ${dayB}`, points: 10 })
+      } else {
+        score -= 25; reasons.push({ label: 'Death year mismatch', detail: `${dayA} ≠ ${dayB}`, points: -25 })
+      }
+    }
   }
 
-  // Church event date match (catches same-day marriages across name variants)
+  // Church event date
   if (a.church_event_date_verbatim && b.church_event_date_verbatim &&
       a.church_event_date_verbatim.trim() === b.church_event_date_verbatim.trim() &&
       firstNameScore > 0) {
     score += 15
+    reasons.push({ label: 'Church event', detail: a.church_event_date_verbatim.trim(), points: 15 })
   }
 
-  // Gender match (minor boost)
-  if (a.gender && b.gender && a.gender === b.gender) score += 5
+  // Gender
+  if (a.gender && b.gender && a.gender === b.gender) {
+    score += 5; reasons.push({ label: 'Gender', detail: a.gender, points: 5 })
+  }
 
-  return score
+  return { score, reasons }
+}
+
+export function matchScore(a, b) {
+  return matchScoreDetails(a, b).score
 }
