@@ -317,15 +317,11 @@ export default function PersonView({ onBack }) {
       const { score, reasons } = matchScoreDetails(person, r)
       return { record: r, score, reasons }
     })
-    const THRESHOLD = 40
-    const scored = all.filter(c => c.score >= THRESHOLD).sort((a, b) => b.score - a.score).slice(0, 10)
-    if (data && data.length > 0 && scored.length === 0) {
-      const top = Math.max(...all.map(c => c.score))
-      const topMatch = all.find(c => c.score === top)
-      setDupCandidates([{ _debug: `${data.length} records found but none scored ≥${THRESHOLD}. Top score: ${top}${topMatch ? ` (${topMatch.record.full_name})` : ''}` }])
-    } else {
-      setDupCandidates(scored)
-    }
+    // Always show top 10 sorted by score; confidence label set in render.
+    // Showing below-threshold results lets users review low-confidence matches
+    // and diagnose scoring issues.
+    const sorted = all.sort((a, b) => b.score - a.score).slice(0, 10)
+    setDupCandidates(sorted.length > 0 ? sorted : [])
     setFindingDups(false)
   }
 
@@ -861,11 +857,14 @@ export default function PersonView({ onBack }) {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {dupCandidates.map(({ record: cand, score, reasons }) => {
                         const isTarget = mergeTarget?.deceased_id === cand.deceased_id
-                        const scoreColor = score >= 80
-                          ? 'var(--color-text-danger)'
-                          : score >= 60
-                            ? 'var(--color-text-warning)'
-                            : 'var(--color-text-secondary)'
+                        const scoreColor = score >= 80 ? 'var(--color-text-danger)'
+                          : score >= 60 ? 'var(--color-text-warning)'
+                          : score >= 40 ? 'var(--color-text-secondary)'
+                          : 'var(--color-text-tertiary)'
+                        const scoreLabel = score >= 80 ? 'strong match'
+                          : score >= 60 ? 'likely match'
+                          : score >= 40 ? 'possible match'
+                          : 'low confidence'
                         return (
                           <div key={cand.deceased_id} style={{
                             border: isTarget ? '0.5px solid var(--color-border-warning)' : '0.5px solid var(--color-border-tertiary)',
@@ -879,7 +878,7 @@ export default function PersonView({ onBack }) {
                                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                                   <p style={{ fontWeight: 500, fontSize: 13, margin: 0 }}>{cand.full_name}</p>
                                   <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 99, border: `0.5px solid ${scoreColor}`, color: scoreColor }}>
-                                    {score} pts
+                                    {score} pts · {scoreLabel}
                                   </span>
                                 </div>
                                 <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
