@@ -4,12 +4,22 @@
 
 import { useState, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
-import { normaliseName, matchScoreDetails } from '../utils/nameNorm'
+import { normaliseName, matchScoreDetails, parseDate } from '../utils/nameNorm'
 import { mergePersons } from '../utils/mergePersons'
 
 const RELATIONSHIP_TYPES = ['spouse', 'parent', 'child', 'sibling', 'unknown']
 const CONFIDENCE_LEVELS = ['confirmed', 'probable', 'possible', 'uncertain']
 const SOURCE_TYPES = ['stone_inscription', 'document', 'church_record', 'census', 'colonial_document', 'family_record', 'ai_extracted', 'volunteer', 'admin']
+
+const MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function fmtDate(verbatim, parsed) {
+  const p = parsed || parseDate(verbatim)
+  if (!p) return verbatim || null
+  const parts = p.split('-')
+  if (parts.length === 3) return `${parseInt(parts[2])} ${MONTH_ABBR[parseInt(parts[1])]} ${parts[0]}`
+  if (parts.length === 2) return `${MONTH_ABBR[parseInt(parts[1])]} ${parts[0]}`
+  return parts[0]
+}
 
 // ── Initials avatar ───────────────────────────────────────────────────────────
 function Avatar({ name, size = 40, color = 'info' }) {
@@ -437,8 +447,8 @@ export default function PersonView({ onBack }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontWeight: 500, fontSize: 14, margin: 0 }}>{r.full_name}</p>
                     <div style={{ display: 'flex', gap: 12, marginTop: 2 }}>
-                      {r.date_of_birth_verbatim && <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>b. {r.date_of_birth_verbatim}</span>}
-                      {r.date_of_death_verbatim && <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>d. {r.date_of_death_verbatim}</span>}
+                      {r.date_of_birth_verbatim && <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>b. {fmtDate(r.date_of_birth_verbatim, r.date_of_birth_parsed)}</span>}
+                      {r.date_of_death_verbatim && <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>d. {fmtDate(r.date_of_death_verbatim, r.date_of_death_parsed)}</span>}
                       {r.maiden_name && <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>nee {r.maiden_name}</span>}
                     </div>
                   </div>
@@ -556,8 +566,8 @@ export default function PersonView({ onBack }) {
                         {[selected.first_name, selected.middle_name, selected.last_name].filter(Boolean).join(' ')}
                       </p>
                       <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>
-                        {[selected.date_of_birth_verbatim && 'b. ' + selected.date_of_birth_verbatim,
-                          selected.date_of_death_verbatim && 'd. ' + selected.date_of_death_verbatim]
+                        {[selected.date_of_birth_verbatim && 'b. ' + fmtDate(selected.date_of_birth_verbatim, selected.date_of_birth_parsed),
+                          selected.date_of_death_verbatim && 'd. ' + fmtDate(selected.date_of_death_verbatim, selected.date_of_death_parsed)]
                           .filter(Boolean).join('  ·  ')}
                       </p>
                     </div>
@@ -666,7 +676,7 @@ export default function PersonView({ onBack }) {
                             style={{ padding: '6px 10px', borderRadius: 'var(--border-radius-md)', border: '0.5px solid var(--color-border-tertiary)', cursor: 'pointer', background: 'var(--color-background-primary)' }}>
                             <p style={{ fontSize: 13, margin: 0, fontWeight: 500 }}>{r.full_name}</p>
                             <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: 0 }}>
-                              {[r.date_of_birth_verbatim && 'b. ' + r.date_of_birth_verbatim, r.date_of_death_verbatim && 'd. ' + r.date_of_death_verbatim].filter(Boolean).join(' · ')}
+                              {[r.date_of_birth_verbatim && 'b. ' + fmtDate(r.date_of_birth_verbatim, r.date_of_birth_parsed), r.date_of_death_verbatim && 'd. ' + fmtDate(r.date_of_death_verbatim, r.date_of_death_parsed)].filter(Boolean).join(' · ')}
                             </p>
                           </div>
                         ))}
@@ -882,8 +892,8 @@ export default function PersonView({ onBack }) {
                                   </span>
                                 </div>
                                 <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
-                                  {cand.date_of_birth_verbatim && <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>b. {cand.date_of_birth_verbatim}</span>}
-                                  {cand.date_of_death_verbatim && <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>d. {cand.date_of_death_verbatim}</span>}
+                                  {cand.date_of_birth_verbatim && <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>b. {fmtDate(cand.date_of_birth_verbatim, cand.date_of_birth_parsed)}</span>}
+                                  {cand.date_of_death_verbatim && <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>d. {fmtDate(cand.date_of_death_verbatim, cand.date_of_death_parsed)}</span>}
                                   {cand.church_event_type && <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{cand.church_event_type}</span>}
                                 </div>
                                 {reasons && reasons.length > 0 && (
