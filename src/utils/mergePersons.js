@@ -120,11 +120,13 @@ export async function mergePersons(supabase, canonicalId, duplicateId, fieldOver
     }
 
     // Step 5: delete the duplicate — CASCADE handles deceased_sources and stone_deceased
-    const { error: e7 } = await supabase
+    const { data: deleted, error: e7 } = await supabase
       .from('deceased')
       .delete()
       .eq('deceased_id', duplicateId)
+      .select('deceased_id')
     if (e7) throw new Error('Delete duplicate: ' + e7.message)
+    if (!deleted || deleted.length === 0) throw new Error('Delete blocked — admin DELETE policy may be missing on deceased table')
     log.push(`Deleted duplicate deceased ${duplicateId}`)
 
     return { ok: true, error: null, log }
