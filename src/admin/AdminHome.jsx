@@ -18,6 +18,13 @@ export default function AdminHome({ profile, onNavigate, onBack }) {
   status: 'active',
 },
     {
+      id: 'dedup',
+      icon: '⚖️',
+      title: 'Duplicate Scan',
+      description: 'Score all records for name and date similarity — review flagged pairs, merge or dismiss',
+      status: 'active',
+    },
+    {
       id: 'mallmann',
       icon: '📖',
       title: 'Mallmann Import',

@@ -9,6 +9,7 @@ import AdminHome from './admin/AdminHome'
 import ChurchImport from './admin/ChurchImport'
 import PersonView from './admin/PersonView'
 import MallmannImport from './admin/MallmannImport'
+import DuplicateScan from './admin/DuplicateScan'
 
 function App() {
   const [session, setSession] = useState(null)
@@ -146,6 +147,9 @@ function App() {
       )}
       {page === 'admin_mallmann' && isAdmin && (
         <MallmannImport onBack={() => setPage('admin')} />
+      )}
+      {page === 'admin_dedup' && isAdmin && (
+        <DuplicateScan onBack={() => setPage('admin')} />
       )}
     </div>
   )
