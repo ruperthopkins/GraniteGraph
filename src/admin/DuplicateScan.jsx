@@ -88,11 +88,16 @@ async function loadAllRecords() {
   return all
 }
 
+const UNREADABLE = ['face down', 'unreadable', 'illegible', 'face-down', 'unknown stone']
+function isUnreadable(r) {
+  const name = `${r.first_name || ''} ${r.last_name || ''}`.toLowerCase()
+  return UNREADABLE.some(p => name.includes(p))
+}
+
 function buildPairs(records, dismissedSet) {
-  // Group by normalized last name (Levenshtein-aware blocking would be better
-  // for spelling variants, but same-name grouping catches the common case)
   const groups = {}
   for (const r of records) {
+    if (isUnreadable(r)) continue
     const key = normaliseName(r).last_name.toLowerCase()
     if (!key) continue
     ;(groups[key] = groups[key] || []).push(r)
@@ -126,10 +131,23 @@ function ScoreBadge({ score }) {
   )
 }
 
+function FieldRow({ label, value }) {
+  if (!value) return null
+  return (
+    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+      <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', minWidth: 64, flexShrink: 0, paddingTop: 1 }}>{label}</span>
+      <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.45 }}>{value}</span>
+    </div>
+  )
+}
+
 function PersonCard({ person, label, isChosen, onChoose }) {
   const displayName = [person.title, person.first_name, person.middle_name, person.last_name]
     .filter(Boolean).join(' ') || '(unnamed)'
-  const score = completeness(person)
+  const churchLine = person.church_event_type
+    ? [person.church_event_type, person.church_event_date_verbatim ? fmtDate(person.church_event_date_verbatim) : null]
+        .filter(Boolean).join(' · ')
+    : null
 
   return (
     <div style={{
@@ -137,39 +155,35 @@ function PersonCard({ person, label, isChosen, onChoose }) {
       borderRadius: 'var(--border-radius-md)',
       border: isChosen ? '1.5px solid var(--color-border-success)' : '0.5px solid var(--color-border-tertiary)',
       background: isChosen ? 'var(--color-background-success)' : 'var(--color-background-secondary)',
-      display: 'flex', flexDirection: 'column', gap: 4,
+      display: 'flex', flexDirection: 'column',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <p style={{ fontSize: 10, color: 'var(--color-text-tertiary)', margin: 0, textTransform: 'uppercase', letterSpacing: 1 }}>{label}</p>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {sourceLabel(person) && (
-            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, border: '0.5px solid var(--color-border-info)', color: 'var(--color-text-info)' }}>
-              {sourceLabel(person)}
-            </span>
-          )}
-          <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>{score} field{score !== 1 ? 's' : ''}</span>
-        </div>
+        {sourceLabel(person) && (
+          <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, border: '0.5px solid var(--color-border-info)', color: 'var(--color-text-info)' }}>
+            {sourceLabel(person)}
+          </span>
+        )}
       </div>
-      <p style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>{displayName}</p>
-      {person.maiden_name && <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: 0 }}>nee {person.maiden_name}</p>}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 2 }}>
-        {person.date_of_birth_verbatim && <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>b. {fmtDate(person.date_of_birth_verbatim, person.date_of_birth_parsed)}</span>}
-        {person.date_of_death_verbatim && <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>d. {fmtDate(person.date_of_death_verbatim, person.date_of_death_parsed)}</span>}
-      </div>
-      {person.church_event_type && (
-        <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: 0 }}>
-          {person.church_event_type}{person.church_event_date_verbatim ? ` · ${fmtDate(person.church_event_date_verbatim)}` : ''}
-        </p>
-      )}
-      {person.biography && (
-        <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: 0, fontStyle: 'italic' }}>
-          {person.biography.length > 120 ? person.biography.slice(0, 120) + '…' : person.biography}
-        </p>
-      )}
+
+      {/* Name */}
+      <p style={{ fontWeight: 600, fontSize: 14, margin: '0 0 6px' }}>{displayName}</p>
+
+      {/* All fields — fully labeled so nothing is ambiguous */}
+      <FieldRow label="née" value={person.maiden_name} />
+      <FieldRow label="born" value={person.date_of_birth_verbatim ? fmtDate(person.date_of_birth_verbatim, person.date_of_birth_parsed) : null} />
+      <FieldRow label="died" value={person.date_of_death_verbatim ? fmtDate(person.date_of_death_verbatim, person.date_of_death_parsed) : null} />
+      <FieldRow label="gender" value={person.gender} />
+      <FieldRow label="church" value={churchLine} />
+      <FieldRow label="biography" value={person.biography} />
+      <FieldRow label="notes" value={person.notes} />
+
+      {/* Primary button */}
       <button
         onClick={onChoose}
         style={{
-          marginTop: 6, fontSize: 12, padding: '4px 10px', alignSelf: 'flex-start',
+          marginTop: 10, fontSize: 12, padding: '4px 10px', alignSelf: 'flex-start',
           borderRadius: 'var(--border-radius-sm)', cursor: 'pointer',
           background: isChosen ? 'var(--color-background-success-strong)' : 'var(--color-background-tertiary)',
           color: isChosen ? 'var(--color-text-success)' : 'var(--color-text-secondary)',
