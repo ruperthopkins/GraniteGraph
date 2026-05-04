@@ -422,8 +422,8 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       (pos) => {
         bestPosition = pos
         const acc = Math.round(pos.coords.accuracy)
-        setGpsStatus('GPS: ' + acc + 'm accuracy' + (acc <= 10 ? ' ✓' : ' (waiting...)'))
-        if (pos.coords.accuracy <= 10) {
+        setGpsStatus('GPS: ' + acc + 'm accuracy' + (acc <= 20 ? ' ✓' : ' (improving...)'))
+        if (pos.coords.accuracy <= 20) {
           navigator.geolocation.clearWatch(watchId)
           setGpsStatus(null)
           resolved = true
@@ -431,19 +431,17 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
         }
       },
       (err) => { if (bestPosition) { setGpsStatus(null); resolved = true; resolve(bestPosition) } else { reject(err) } },
-      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     )
+    // Take best available fix after 10s rather than making volunteer stand still
     setTimeout(() => {
       if (resolved) return
       navigator.geolocation.clearWatch(watchId)
       setGpsStatus(null)
       if (bestPosition) {
-        if (Math.round(bestPosition.coords.accuracy) > 10) {
-          alert('Poor GPS fix (' + Math.round(bestPosition.coords.accuracy) + 'm). Location saved but may be imprecise.')
-        }
         resolve(bestPosition)
       } else { reject(new Error('Could not get GPS position')) }
-    }, 20000)
+    }, 10000)
   })
 
   // ── SAVE EVERYTHING ──────────────────────────────────────
