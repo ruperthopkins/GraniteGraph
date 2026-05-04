@@ -942,12 +942,31 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                 {/* Suggested relationships */}
                 {person.relationships.map((rel, rIndex) => (
                   <div key={rIndex} className="bg-gray-700 rounded p-3 mb-2">
-                    <p className="text-yellow-400 text-xs font-bold mb-1">
-                      {REL_LABEL[rel.type] || rel.type}: {rel.rawNames.length > 0 ? rel.rawNames.join(' & ') : 'person on same stone'}
-                    </p>
-                    <p className="text-gray-400 text-xs mb-2">"{rel.hint}"</p>
+                    {/* Editable type dropdown */}
+                    <div className="flex items-center gap-2 mb-1">
+                      <select
+                        value={rel.type}
+                        onChange={e => setStoneMatrix(prev => ({
+                          ...prev,
+                          people: prev.people.map((p, i) => i !== pIndex ? p : {
+                            ...p,
+                            relationships: p.relationships.map((r, ri) => ri !== rIndex ? r : { ...r, type: e.target.value })
+                          })
+                        }))}
+                        className="bg-gray-600 text-yellow-400 text-xs font-bold border border-gray-500 rounded px-1 py-0.5 outline-none"
+                      >
+                        <option value="spouse">Spouse of</option>
+                        <option value="child">Child of</option>
+                        <option value="parent">Parent of</option>
+                        <option value="sibling">Sibling of</option>
+                      </select>
+                      {rel.rawNames.length > 0 && (
+                        <span className="text-yellow-300 text-xs">{rel.rawNames.join(' & ')}</span>
+                      )}
+                    </div>
+                    {rel.hint && <p className="text-gray-400 text-xs mb-2">"{rel.hint}"</p>}
 
-                    {/* Match relationship to another person on stone */}
+                    {/* Link to another person on stone */}
                     <p className="text-gray-300 text-xs mb-1">Link to:</p>
                     <div className="flex flex-wrap gap-1 mb-2">
                       {stoneMatrix.people.filter((_, i) => i !== pIndex).map((otherPerson, oIndex) => {
@@ -967,6 +986,20 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                     </button>
                   </div>
                 ))}
+
+                {/* Add a relationship Gemini missed */}
+                <button
+                  onClick={() => setStoneMatrix(prev => ({
+                    ...prev,
+                    people: prev.people.map((p, i) => i !== pIndex ? p : {
+                      ...p,
+                      relationships: [...p.relationships, { type: 'spouse', rawNames: [], hint: '', implicit: false }]
+                    })
+                  }))}
+                  className="text-green-400 text-xs mb-3 hover:text-green-300"
+                >
+                  + Add relationship
+                </button>
 
                 {/* Confirmed relationships */}
                 {person.confirmedRelationships.length > 0 && (
