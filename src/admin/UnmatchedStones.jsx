@@ -113,7 +113,7 @@ export default function UnmatchedStones({ onBack }) {
       role,
       confirmed_by: user.id,
       confirmed_at: new Date().toISOString(),
-      match_method: 'volunteer_confirmed',
+      match_method: 'manual',
     })
     if (error) {
       alert('Link failed: ' + error.message)
