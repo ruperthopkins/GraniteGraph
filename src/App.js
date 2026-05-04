@@ -10,6 +10,7 @@ import ChurchImport from './admin/ChurchImport'
 import PersonView from './admin/PersonView'
 import MallmannImport from './admin/MallmannImport'
 import DuplicateScan from './admin/DuplicateScan'
+import UnmatchedStones from './admin/UnmatchedStones'
 
 function App() {
   const [session, setSession] = useState(null)
@@ -150,6 +151,9 @@ function App() {
       )}
       {page === 'admin_dedup' && isAdmin && (
         <DuplicateScan onBack={() => setPage('admin')} />
+      )}
+      {page === 'admin_stones' && isAdmin && (
+        <UnmatchedStones onBack={() => setPage('admin')} />
       )}
     </div>
   )

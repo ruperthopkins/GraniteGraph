@@ -25,6 +25,13 @@ export default function AdminHome({ profile, onNavigate, onBack }) {
       status: 'active',
     },
     {
+      id: 'stones',
+      icon: '🪨',
+      title: 'Unmatched Stones',
+      description: 'Link photographed stones to deceased records — assign Buried Here or Mentioned, confirm kinship',
+      status: 'active',
+    },
+    {
       id: 'mallmann',
       icon: '📖',
       title: 'Mallmann Import',
