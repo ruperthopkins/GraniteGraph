@@ -1085,11 +1085,15 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                           className={'p-3 rounded-lg mb-2 cursor-pointer ' + (record.is_photographed ? 'bg-gray-700 border border-yellow-600' : 'bg-gray-700')}
                           onClick={() => selectMatch(record)}>
                           <p className={'font-bold text-sm ' + (record.is_photographed ? 'text-yellow-400' : 'text-white')}>
-                            {record.full_name}{record.is_photographed ? ' (already cataloged)' : ''}
+                            {record.full_name}
+                            {record.is_photographed ? ' (already cataloged)' : ''}
                           </p>
                           <p className="text-gray-100 text-xs">
                             {record.date_of_death_verbatim && 'd. ' + record.date_of_death_verbatim}
                             {record.maiden_name && ' | nee ' + record.maiden_name}
+                            {record.is_mentioned && !record.is_photographed && (
+                              <span className="ml-1 text-blue-300"> · mentioned on another stone</span>
+                            )}
                           </p>
                         </div>
                       ))}
