@@ -343,28 +343,38 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     setMatchSearching(true)
     setMatchSearchResults([])
     setMatchSearchAttempted(true)
-    const terms = query.trim().split(/[\s,]+/).filter(Boolean)
-    let dbQuery = supabase.from('v_deceased_search').select('*')
-    if (terms.length === 1) {
-      dbQuery = dbQuery.or('first_name.ilike.*' + terms[0] + '*,last_name.ilike.*' + terms[0] + '*,maiden_name.ilike.*' + terms[0] + '*')
-    } else {
-      const lastName = terms[terms.length - 1]
-      const firstTerms = terms.slice(0, -1)
-      dbQuery = dbQuery.ilike('last_name', '%' + lastName + '%')
-      firstTerms.forEach(term => {
-        dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%')
-      })
-    }
-    // Apply year window if we have a death year
-   const person = stoneMatrix?.people?.[matchingIndex]
-    const deathYearMatch = (person?.geminiData?.date_of_death_verbatim || '').match(/\d{4}/)
-    if (deathYearMatch) {
-      const year = parseInt(deathYearMatch[0])
-      if (year >= 1700 && year <= 2030) {
-        dbQuery = dbQuery.gte('date_of_death', (year - 15) + '-01-01').lte('date_of_death', (year + 15) + '-12-31')
+
+    const buildQuery = () => {
+      const terms = query.trim().split(/[\s,]+/).filter(Boolean)
+      let dbQuery = supabase.from('v_deceased_search').select('*')
+      if (terms.length === 1) {
+        dbQuery = dbQuery.or('first_name.ilike.*' + terms[0] + '*,last_name.ilike.*' + terms[0] + '*,maiden_name.ilike.*' + terms[0] + '*')
+      } else {
+        const lastName = terms[terms.length - 1]
+        const firstTerms = terms.slice(0, -1)
+        dbQuery = dbQuery.ilike('last_name', '%' + lastName + '%')
+        firstTerms.forEach(term => {
+          dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%')
+        })
       }
+      // Apply year window if we have a death year
+      const person = stoneMatrix?.people?.[matchingIndex]
+      const deathYearMatch = (person?.geminiData?.date_of_death_verbatim || '').match(/\d{4}/)
+      if (deathYearMatch) {
+        const year = parseInt(deathYearMatch[0])
+        if (year >= 1700 && year <= 2030) {
+          dbQuery = dbQuery.gte('date_of_death', (year - 15) + '-01-01').lte('date_of_death', (year + 15) + '-12-31')
+        }
+      }
+      return dbQuery.order('last_name').order('first_name').limit(20)
     }
-    const { data, error } = await dbQuery.order('last_name').order('first_name').limit(20)
+
+    let { data, error } = await buildQuery()
+    // Connection may have gone cold during Gemini analysis — retry once automatically
+    if (error || !data) {
+      await new Promise(r => setTimeout(r, 400))
+      ;({ data, error } = await buildQuery())
+    }
     if (!error) setMatchSearchResults(data || [])
     setMatchSearching(false)
   }
@@ -879,7 +889,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                 {/* Dates — FIX #4: editable fields instead of static text */}
                 <div className="flex gap-2 mb-2">
                   <div className="flex-1">
-                    <p className="text-gray-400 text-xs mb-1">Born</p>
+                    <p className="text-gray-200 text-xs mb-1 font-medium">Born</p>
                     <input
                       type="text"
                       value={person.geminiData.date_of_birth_verbatim || ''}
@@ -890,11 +900,11 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                           : p)
                       }))}
                       placeholder="Birth date"
-                      className="w-full bg-gray-600 border border-gray-500 rounded p-2 text-white text-xs outline-none focus:ring-2 focus:ring-green-500 placeholder-gray-400"
+                      className="w-full bg-white border-2 border-green-500 rounded p-2 text-gray-900 text-xs outline-none focus:ring-2 focus:ring-green-400 placeholder-gray-500 font-medium"
                     />
                   </div>
                   <div className="flex-1">
-                    <p className="text-gray-400 text-xs mb-1">Died</p>
+                    <p className="text-gray-200 text-xs mb-1 font-medium">Died</p>
                     <input
                       type="text"
                       value={person.geminiData.date_of_death_verbatim || ''}
@@ -905,7 +915,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                           : p)
                       }))}
                       placeholder="Death date"
-                      className="w-full bg-gray-600 border border-gray-500 rounded p-2 text-white text-xs outline-none focus:ring-2 focus:ring-green-500 placeholder-gray-400"
+                      className="w-full bg-white border-2 border-green-500 rounded p-2 text-gray-900 text-xs outline-none focus:ring-2 focus:ring-green-400 placeholder-gray-500 font-medium"
                     />
                   </div>
                 </div>
@@ -1077,7 +1087,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                           <p className={'font-bold text-sm ' + (record.is_photographed ? 'text-yellow-400' : 'text-white')}>
                             {record.full_name}{record.is_photographed ? ' (already cataloged)' : ''}
                           </p>
-                          <p className="text-gray-300 text-xs">
+                          <p className="text-gray-100 text-xs">
                             {record.date_of_death_verbatim && 'd. ' + record.date_of_death_verbatim}
                             {record.maiden_name && ' | nee ' + record.maiden_name}
                           </p>
@@ -1086,7 +1096,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
 
                       {/* FIX #2: no results message only after search fully completes */}
                       {!matchSearching && matchSearchAttempted && matchSearchResults.length === 0 && (
-                        <p className="text-gray-400 text-sm text-center py-2">No matches found</p>
+                        <p className="text-gray-200 text-sm text-center py-2">No matches found — try a shorter name or last name only</p>
                       )}
                     </>
                   )}
