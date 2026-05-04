@@ -47,6 +47,7 @@ export default function UnmatchedStones({ onBack }) {
   const [saving, setSaving]             = useState(false)
   const [kinshipPair, setKinshipPair]   = useState(null) // null | 'skip' | {a, b}
   const [kinshipType, setKinshipType]   = useState('spouse')
+  const [newRecord, setNewRecord]       = useState(null) // null | field object when creating
 
   const load = useCallback(async () => {
     setLoading(true); setLoadError(null)
@@ -68,7 +69,7 @@ export default function UnmatchedStones({ onBack }) {
   const selectStone = async (stone) => {
     setSelected(stone); setPhase('detail')
     setSearchQuery(''); setSearchResults([]); setSearchAttempted(false)
-    setPendingMatch(null); setKinshipPair(null); setKinshipType('spouse')
+    setPendingMatch(null); setKinshipPair(null); setKinshipType('spouse'); setNewRecord(null)
     await loadLinks(stone.stone_id)
   }
 
@@ -130,6 +131,33 @@ export default function UnmatchedStones({ onBack }) {
       .delete().eq('stone_id', selected.stone_id).eq('deceased_id', deceasedId)
     if (error) alert('Remove failed: ' + error.message)
     else { setKinshipPair(null); await loadLinks(selected.stone_id) }
+  }
+
+  // ── Create new deceased record and link ──────────────────────────────────
+  const createAndLink = async (role) => {
+    if (!newRecord?.last_name && !newRecord?.first_name) {
+      alert('Please enter at least a first or last name.')
+      return
+    }
+    setSaving(true)
+    const { data: inserted, error: ce } = await supabase
+      .from('deceased')
+      .insert({
+        first_name:            newRecord.first_name   || null,
+        middle_name:           newRecord.middle_name  || null,
+        last_name:             newRecord.last_name    || null,
+        maiden_name:           newRecord.maiden_name  || null,
+        date_of_birth_verbatim: newRecord.born        || null,
+        date_of_death_verbatim: newRecord.died        || null,
+        gender:                newRecord.gender       || null,
+        cemetery_id:           'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+      })
+      .select('deceased_id, first_name, middle_name, last_name, title')
+      .single()
+    if (ce) { alert('Create failed: ' + ce.message); setSaving(false); return }
+    await linkPerson(inserted, role)
+    setNewRecord(null)
+    setSaving(false)
   }
 
   // ── Save kinship ──────────────────────────────────────────────────────────
@@ -321,6 +349,58 @@ export default function UnmatchedStones({ onBack }) {
             {searchAttempted && !searching && searchResults.length === 0 && (
               <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', textAlign: 'center', padding: '8px 0' }}>No matches — try last name only</p>
             )}
+            {searchAttempted && !searching && (
+              <button
+                onClick={() => setNewRecord({ first_name: '', middle_name: '', last_name: '', maiden_name: '', born: '', died: '', gender: '' })}
+                style={{ fontSize: 12, color: 'var(--color-text-success)', background: 'none', border: '0.5px solid var(--color-border-success)', borderRadius: 'var(--border-radius-sm)', padding: '5px 12px', cursor: 'pointer', marginTop: 4, width: '100%' }}>
+                + Not in database — create new record
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* New record form */}
+        {newRecord && (
+          <div style={{ background: 'var(--color-background-secondary)', borderRadius: 'var(--border-radius-md)', padding: '14px', marginBottom: 14, border: '0.5px solid var(--color-border-success)' }}>
+            <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-success)', margin: '0 0 12px' }}>New record — fill from inscription</p>
+            {[
+              ['First name',   'first_name'],
+              ['Middle name',  'middle_name'],
+              ['Last name',    'last_name'],
+              ['Maiden name',  'maiden_name'],
+              ['Born',         'born'],
+              ['Died',         'died'],
+            ].map(([label, field]) => (
+              <div key={field} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', minWidth: 80 }}>{label}</span>
+                <input type="text" value={newRecord[field]}
+                  onChange={e => setNewRecord(r => ({ ...r, [field]: e.target.value }))}
+                  style={{ flex: 1, background: 'white', color: '#111', border: '1.5px solid var(--color-border-success)', borderRadius: 'var(--border-radius-sm)', padding: '5px 8px', fontSize: 13 }}
+                />
+              </div>
+            ))}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', minWidth: 80 }}>Gender</span>
+              <select value={newRecord.gender} onChange={e => setNewRecord(r => ({ ...r, gender: e.target.value }))}
+                style={{ background: 'white', color: '#111', border: '1.5px solid var(--color-border-success)', borderRadius: 'var(--border-radius-sm)', padding: '5px 8px', fontSize: 13 }}>
+                <option value="">—</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={() => createAndLink('occupant')} disabled={saving} style={{ fontSize: 13, padding: '8px 14px' }}>
+                ⬛ Create & link as Buried here
+              </button>
+              <button onClick={() => createAndLink('mentioned')} disabled={saving}
+                style={{ fontSize: 13, padding: '8px 14px', background: 'var(--color-background-tertiary)', color: 'var(--color-text-secondary)', border: '0.5px solid var(--color-border-secondary)' }}>
+                📝 Create & link as Mentioned
+              </button>
+              <button onClick={() => setNewRecord(null)} disabled={saving}
+                style={{ fontSize: 13, padding: '8px 14px', background: 'none', color: 'var(--color-text-tertiary)', border: '0.5px solid var(--color-border-tertiary)', cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
           </div>
         )}
 
