@@ -81,9 +81,13 @@ export default function PersonView({ onBack }) {
   const [searchResults, setSearchResults] = useState(null)
   const [searching, setSearching] = useState(false)
   const [selected, setSelected] = useState(null)       // full person record
-  const [stoneData, setStoneData] = useState(null)     // stone + photo
+  const [stoneLinks, setStoneLinks] = useState([])     // all stone_deceased rows with nested stone+photos
   const [kinship, setKinship] = useState([])           // relationships
   const [loading, setLoading] = useState(false)
+  const [photoIndex, setPhotoIndex] = useState(0)      // current photo in carousel
+  const [expandedPhoto, setExpandedPhoto] = useState(null) // full-screen URL
+  const [deletingPhotoUrl, setDeletingPhotoUrl] = useState(null)
+  const [togglingRole, setTogglingRole] = useState(null) // stone_id being toggled
 
   // Edit states
   const [editingPerson, setEditingPerson] = useState(false)
@@ -142,7 +146,9 @@ export default function PersonView({ onBack }) {
   const loadPerson = useCallback(async (record) => {
     setLoading(true)
     setSelected(null)
-    setStoneData(null)
+    setStoneLinks([])
+    setPhotoIndex(0)
+    setExpandedPhoto(null)
     setKinship([])
     setEditingPerson(false)
     setShowAddRel(false)
@@ -163,17 +169,15 @@ export default function PersonView({ onBack }) {
     setSelected(person || null)
     setEditForm(person || {})
 
-    // Stone + photo
+    // All stone links (may appear on multiple stones as occupant or mentioned)
     const { data: sd, error: sdError } = await supabase
       .from('stone_deceased')
-      .select('role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(photo_url, is_primary, side))')
+      .select('stone_deceased_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
       .eq('deceased_id', record.deceased_id)
-      .limit(1)
-      .single()
-    if (sdError && sdError.code !== 'PGRST116') {
-      console.error('Error loading stone data:', sdError)
-    }
-    if (sd?.stones) setStoneData(sd.stones)
+      .order('role') // 'occupant' sorts before 'mentioned'
+    if (sdError) console.error('Error loading stone data:', sdError)
+    setStoneLinks(sd || [])
+    setPhotoIndex(0)
 
     // Kinship
     const { data: kin } = await supabase
@@ -284,6 +288,59 @@ export default function PersonView({ onBack }) {
     setShowCreateNew(false)
   }
 
+  // ── Photo management ────────────────────────────────────────────────────────
+  const makePrimary = async (photo) => {
+    const { stone_id, id: photoId, photo_url } = photo
+    // Clear all primary flags for this stone, then set the chosen one
+    await supabase.from('stone_photos').update({ is_primary: false }).eq('stone_id', stone_id)
+    const identifier = photoId ? { id: photoId } : { photo_url }
+    await supabase.from('stone_photos').update({ is_primary: true }).match(identifier)
+    // Refresh stone links
+    const { data: sd } = await supabase
+      .from('stone_deceased')
+      .select('stone_deceased_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
+      .eq('deceased_id', selected.deceased_id).order('role')
+    setStoneLinks(sd || [])
+  }
+
+  const deletePhoto = async (photo) => {
+    if (!window.confirm('Delete this photo? This cannot be undone.')) return
+    setDeletingPhotoUrl(photo.photo_url)
+    const identifier = photo.id ? { id: photo.id } : { photo_url: photo.photo_url }
+    await supabase.from('stone_photos').delete().match(identifier)
+    const { data: sd } = await supabase
+      .from('stone_deceased')
+      .select('stone_deceased_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
+      .eq('deceased_id', selected.deceased_id).order('role')
+    setStoneLinks(sd || [])
+    setPhotoIndex(0)
+    setDeletingPhotoUrl(null)
+  }
+
+  const toggleRole = async (link) => {
+    const newRole = link.role === 'occupant' ? 'mentioned' : 'occupant'
+    if (newRole === 'mentioned' && kinship.length === 0) {
+      if (!window.confirm('Switching to "Mentioned" requires a relationship to be recorded. Continue and add a relationship after?')) return
+    }
+    setTogglingRole(link.stones.stone_id)
+    await supabase.from('stone_deceased')
+      .update({ role: newRole })
+      .eq('stone_deceased_id', link.stone_deceased_id)
+    // If promoting to occupant, make that stone's first photo primary
+    if (newRole === 'occupant' && link.stones?.stone_photos?.length > 0) {
+      const firstPhoto = link.stones.stone_photos[0]
+      await supabase.from('stone_photos').update({ is_primary: false }).neq('stone_id', link.stones.stone_id)
+      await supabase.from('stone_photos').update({ is_primary: true })
+        .match(firstPhoto.id ? { id: firstPhoto.id } : { photo_url: firstPhoto.photo_url })
+    }
+    const { data: sd } = await supabase
+      .from('stone_deceased')
+      .select('stone_deceased_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
+      .eq('deceased_id', selected.deceased_id).order('role')
+    setStoneLinks(sd || [])
+    setTogglingRole(null)
+  }
+
   // ── Add relationship ────────────────────────────────────────────────────────
   const addRel = async () => {
     if (!addRelTarget) return
@@ -390,7 +447,14 @@ export default function PersonView({ onBack }) {
     unknown: kinship.filter(k => k.relationship_type === 'unknown'),
   }
 
-  const photo = stoneData?.stone_photos?.find(p => p.is_primary) || stoneData?.stone_photos?.[0]
+  // Flatten all photos across all stones, occupant stones first, primary photos first within each
+  const allPhotos = stoneLinks.flatMap(link =>
+    (link.stones?.stone_photos || [])
+      .sort((a, b) => (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0))
+      .map(p => ({ ...p, stone_id: link.stones.stone_id, role: link.role, stone_deceased_id: link.stone_deceased_id }))
+  )
+  const stoneData = stoneLinks.find(l => l.role === 'occupant')?.stones || stoneLinks[0]?.stones || null
+  const currentPhoto = allPhotos[photoIndex] || null
 
   const MERGE_FIELDS = [
     { key: 'first_name', label: 'first name' },
@@ -505,43 +569,116 @@ export default function PersonView({ onBack }) {
             {/* ── LEFT COLUMN ── */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-              {/* Stone photo */}
+              {/* Stone photos + role management */}
               <div style={card}>
-                {photo ? (
-                  <img src={photo.photo_url} alt="Gravestone"
-                    style={{ width: '100%', borderRadius: 'var(--border-radius-md)', marginBottom: 12, display: 'block' }} />
+                {/* Expanded photo modal */}
+                {expandedPhoto && (
+                  <div onClick={() => setExpandedPhoto(null)}
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out' }}>
+                    <img src={expandedPhoto} alt="Expanded" style={{ maxWidth: '95vw', maxHeight: '95vh', objectFit: 'contain', borderRadius: 'var(--border-radius-md)' }} />
+                  </div>
+                )}
+
+                {allPhotos.length > 0 ? (
+                  <>
+                    {/* Main photo display */}
+                    <div style={{ position: 'relative', marginBottom: 8 }}>
+                      <img
+                        src={currentPhoto.photo_url} alt="Gravestone"
+                        onClick={() => setExpandedPhoto(currentPhoto.photo_url)}
+                        style={{ width: '100%', borderRadius: 'var(--border-radius-md)', display: 'block', cursor: 'zoom-in' }}
+                      />
+                      {/* Role badge on photo */}
+                      <span style={{
+                        position: 'absolute', top: 8, left: 8, fontSize: 11, padding: '2px 8px',
+                        borderRadius: 99, fontWeight: 600,
+                        background: currentPhoto.role === 'occupant' ? 'var(--color-background-success)' : 'var(--color-background-warning)',
+                        color: currentPhoto.role === 'occupant' ? 'var(--color-text-success)' : 'var(--color-text-warning)',
+                        border: currentPhoto.role === 'occupant' ? '0.5px solid var(--color-border-success)' : '0.5px solid var(--color-border-warning)',
+                      }}>
+                        {currentPhoto.role === 'occupant' ? '⬛ Buried' : '📝 Mentioned'}
+                      </span>
+                      {currentPhoto.is_primary && (
+                        <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
+                          ★ Primary
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Photo actions */}
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                      {!currentPhoto.is_primary && (
+                        <button onClick={() => makePrimary(currentPhoto)} style={{ fontSize: 11 }}>★ Make primary</button>
+                      )}
+                      <button
+                        onClick={() => deletePhoto(currentPhoto)}
+                        disabled={deletingPhotoUrl === currentPhoto.photo_url}
+                        style={{ fontSize: 11, color: 'var(--color-text-danger, #dc2626)' }}>
+                        {deletingPhotoUrl === currentPhoto.photo_url ? 'Deleting…' : 'Delete photo'}
+                      </button>
+                    </div>
+
+                    {/* Thumbnail carousel (only if >1 photo) */}
+                    {allPhotos.length > 1 && (
+                      <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginBottom: 10 }}>
+                        {allPhotos.map((p, i) => (
+                          <div key={p.photo_url} onClick={() => setPhotoIndex(i)} style={{
+                            flexShrink: 0, width: 56, height: 56, borderRadius: 'var(--border-radius-sm)',
+                            overflow: 'hidden', cursor: 'pointer',
+                            border: i === photoIndex ? '2px solid var(--color-border-info)' : '2px solid transparent',
+                            opacity: i === photoIndex ? 1 : 0.6,
+                          }}>
+                            <img src={p.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div style={{ width: '100%', aspectRatio: '3/4', background: 'var(--color-background-secondary)', borderRadius: 'var(--border-radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
                     <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>no photo</span>
                   </div>
                 )}
 
-                {stoneData?.inscription_text && (
-                  <>
-                    <p style={{ ...sectionLabel }}>Inscription</p>
-                    <p style={{ fontSize: 12, fontFamily: 'var(--font-mono)', lineHeight: 1.7, margin: '0 0 10px', background: 'var(--color-background-secondary)', padding: '8px 10px', borderRadius: 'var(--border-radius-md)', color: 'var(--color-text-primary)' }}>
-                      {stoneData.inscription_text}
-                    </p>
-                  </>
-                )}
-
-                {stoneData && (
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'var(--color-background-success)', color: 'var(--color-text-success)', border: '0.5px solid var(--color-border-success)' }}>photographed</span>
-                    {stoneData.stone_condition && (
-                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'var(--color-background-secondary)', color: 'var(--color-text-secondary)', border: '0.5px solid var(--color-border-tertiary)' }}>
-                        {stoneData.stone_condition}
-                      </span>
+                {/* Stone links — inscription, condition, role toggle */}
+                {stoneLinks.map(link => (
+                  <div key={link.stone_deceased_id} style={{ marginBottom: 12 }}>
+                    {link.stones?.inscription_text && (
+                      <>
+                        <p style={{ ...sectionLabel }}>Inscription</p>
+                        <p style={{ fontSize: 12, fontFamily: 'var(--font-mono)', lineHeight: 1.7, margin: '0 0 8px', background: 'var(--color-background-secondary)', padding: '8px 10px', borderRadius: 'var(--border-radius-md)', color: 'var(--color-text-primary)' }}>
+                          {link.stones.inscription_text}
+                        </p>
+                      </>
                     )}
-                    {stoneData.flags?.length > 0 && (
-                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'var(--color-background-warning)', color: 'var(--color-text-warning)', border: '0.5px solid var(--color-border-warning)' }}>
-                        flagged
-                      </span>
-                    )}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {/* Role toggle */}
+                      <button
+                        onClick={() => toggleRole(link)}
+                        disabled={togglingRole === link.stones?.stone_id}
+                        style={{
+                          fontSize: 11, padding: '2px 10px', borderRadius: 99, fontWeight: 600, cursor: 'pointer',
+                          background: link.role === 'occupant' ? 'var(--color-background-success)' : 'var(--color-background-warning)',
+                          color: link.role === 'occupant' ? 'var(--color-text-success)' : 'var(--color-text-warning)',
+                          border: link.role === 'occupant' ? '0.5px solid var(--color-border-success)' : '0.5px solid var(--color-border-warning)',
+                        }}>
+                        {togglingRole === link.stones?.stone_id ? '…' : link.role === 'occupant' ? '⬛ Buried — click to mark Mentioned' : '📝 Mentioned — click to mark Buried'}
+                      </button>
+                      {link.stones?.stone_condition && (
+                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'var(--color-background-secondary)', color: 'var(--color-text-secondary)', border: '0.5px solid var(--color-border-tertiary)' }}>
+                          {link.stones.stone_condition}
+                        </span>
+                      )}
+                      {link.stones?.flags?.length > 0 && (
+                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'var(--color-background-warning)', color: 'var(--color-text-warning)', border: '0.5px solid var(--color-border-warning)' }}>
+                          flagged
+                        </span>
+                      )}
+                    </div>
                   </div>
-                )}
+                ))}
 
-                {!stoneData && (
+                {stoneLinks.length === 0 && (
                   <div style={{ background: 'var(--color-background-secondary)', borderRadius: 'var(--border-radius-md)', padding: '10px 12px' }}>
                     <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: 0 }}>No stone cataloged yet</p>
                   </div>
