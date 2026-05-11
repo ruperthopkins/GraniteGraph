@@ -7,7 +7,6 @@ import { supabase } from '../supabaseClient'
 import { normaliseName, matchScoreDetails, parseDate } from '../utils/nameNorm'
 import { mergePersons } from '../utils/mergePersons'
 
-const RELATIONSHIP_TYPES = ['spouse', 'parent', 'child', 'sibling', 'unknown']
 const CONFIDENCE_LEVELS = ['confirmed', 'probable', 'possible', 'uncertain']
 const SOURCE_TYPES = ['stone_inscription', 'document', 'church_record', 'census', 'colonial_document', 'family_record', 'ai_extracted', 'volunteer', 'admin']
 // Human-readable labels — kept in sync with field tool REL_LABEL
