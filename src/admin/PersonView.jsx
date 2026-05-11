@@ -293,12 +293,7 @@ export default function PersonView({ onBack }) {
     await supabase.from('stone_photos').update({ is_primary: false }).eq('stone_id', stone_id)
     const identifier = photoId ? { id: photoId } : { photo_url }
     await supabase.from('stone_photos').update({ is_primary: true }).match(identifier)
-    // Refresh stone links
-    const { data: sd } = await supabase
-      .from('stone_deceased')
-      .select('stone_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
-      .eq('deceased_id', selected.deceased_id).order('role')
-    setStoneLinks(sd || [])
+    await refreshStoneLinks(selected.deceased_id)
   }
 
   const deletePhoto = async (photo) => {
@@ -306,13 +301,18 @@ export default function PersonView({ onBack }) {
     setDeletingPhotoUrl(photo.photo_url)
     const identifier = photo.id ? { id: photo.id } : { photo_url: photo.photo_url }
     await supabase.from('stone_photos').delete().match(identifier)
+    await refreshStoneLinks(selected.deceased_id)
+    setPhotoIndex(0)
+    setDeletingPhotoUrl(null)
+  }
+
+  const refreshStoneLinks = async (deceasedId) => {
     const { data: sd } = await supabase
       .from('stone_deceased')
       .select('stone_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
-      .eq('deceased_id', selected.deceased_id).order('role')
+      .eq('deceased_id', deceasedId)
+      .order('role', { ascending: false })
     setStoneLinks(sd || [])
-    setPhotoIndex(0)
-    setDeletingPhotoUrl(null)
   }
 
   const toggleRole = async (link) => {
@@ -320,22 +320,23 @@ export default function PersonView({ onBack }) {
     if (newRole === 'mentioned' && kinship.length === 0) {
       if (!window.confirm('Switching to "Mentioned" requires a relationship to be recorded. Continue and add a relationship after?')) return
     }
-    setTogglingRole(link.stones.stone_id)
-    await supabase.from('stone_deceased')
+    setTogglingRole(link.stone_id)
+    const { error } = await supabase.from('stone_deceased')
       .update({ role: newRole })
       .eq('stone_id', link.stone_id).eq('deceased_id', selected.deceased_id)
+    if (error) {
+      alert('Could not update role: ' + error.message)
+      setTogglingRole(null)
+      return
+    }
     // If promoting to occupant, make that stone's first photo primary
     if (newRole === 'occupant' && link.stones?.stone_photos?.length > 0) {
       const firstPhoto = link.stones.stone_photos[0]
-      await supabase.from('stone_photos').update({ is_primary: false }).neq('stone_id', link.stones.stone_id)
+      await supabase.from('stone_photos').update({ is_primary: false }).neq('stone_id', link.stone_id)
       await supabase.from('stone_photos').update({ is_primary: true })
         .match(firstPhoto.id ? { id: firstPhoto.id } : { photo_url: firstPhoto.photo_url })
     }
-    const { data: sd } = await supabase
-      .from('stone_deceased')
-      .select('stone_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
-      .eq('deceased_id', selected.deceased_id).order('role')
-    setStoneLinks(sd || [])
+    await refreshStoneLinks(selected.deceased_id)
     setTogglingRole(null)
   }
 
@@ -596,7 +597,7 @@ export default function PersonView({ onBack }) {
                       }}>
                         {currentPhoto.role === 'occupant' ? '⬛ Buried' : '📝 Mentioned'}
                       </span>
-                      {currentPhoto.is_primary && (
+                      {currentPhoto.is_primary && currentPhoto.role === 'occupant' && (
                         <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
                           ★ Primary
                         </span>
@@ -605,7 +606,7 @@ export default function PersonView({ onBack }) {
 
                     {/* Photo actions */}
                     <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                      {!currentPhoto.is_primary && (
+                      {(!currentPhoto.is_primary || currentPhoto.role !== 'occupant') && (
                         <button onClick={() => makePrimary(currentPhoto)} style={{ fontSize: 11 }}>★ Make primary</button>
                       )}
                       <button
