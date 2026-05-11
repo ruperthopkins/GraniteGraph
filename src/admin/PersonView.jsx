@@ -100,9 +100,13 @@ export default function PersonView({ onBack }) {
   const [showAddRel, setShowAddRel] = useState(false)
   const [addRelSearch, setAddRelSearch] = useState('')
   const [addRelResults, setAddRelResults] = useState([])
-  const [addRelForm, setAddRelForm] = useState({ relationship_type: 'spouse', confidence: 'probable', notes: '' })
+  const [addRelSearched, setAddRelSearched] = useState(false)
+  const [addRelForm, setAddRelForm] = useState({ relationship_type: 'child', confidence: 'probable', notes: '' })
   const [addRelTarget, setAddRelTarget] = useState(null)
   const [savingAddRel, setSavingAddRel] = useState(false)
+  const [showCreateNew, setShowCreateNew] = useState(false)
+  const [createNewForm, setCreateNewForm] = useState({ first_name: '', last_name: '', date_of_birth_verbatim: '', date_of_death_verbatim: '' })
+  const [creatingNew, setCreatingNew] = useState(false)
 
   // Duplicate finder / merge
   const [dupCandidates, setDupCandidates]         = useState([])
@@ -248,12 +252,36 @@ export default function PersonView({ onBack }) {
     const terms = addRelSearch.trim().split(/[\s,]+/).filter(Boolean)
     let q = supabase.from('v_deceased_search').select('*')
     if (terms.length === 1) {
-      q = q.or(`first_name.ilike.%${terms[0]}%,last_name.ilike.%${terms[0]}%`)
+      q = q.or(`first_name.ilike.*${terms[0]}*,last_name.ilike.*${terms[0]}*,maiden_name.ilike.*${terms[0]}*`)
     } else {
-      q = q.ilike('last_name', `%${terms[terms.length-1]}%`)
+      const lastName = terms[terms.length - 1]
+      const firstTerms = terms.slice(0, -1)
+      q = q.ilike('last_name', `%${lastName}%`)
+      firstTerms.forEach(term => { q = q.or(`first_name.ilike.%${term}%,middle_name.ilike.%${term}%`) })
     }
     const { data } = await q.order('last_name').order('first_name').limit(20)
     setAddRelResults(data || [])
+    setAddRelSearched(true)
+    // Pre-fill create-new form from search terms
+    const parts = addRelSearch.trim().split(/[\s,]+/).filter(Boolean)
+    if (parts.length >= 2) setCreateNewForm(p => ({ ...p, first_name: parts.slice(0, -1).join(' '), last_name: parts[parts.length - 1] }))
+    else setCreateNewForm(p => ({ ...p, last_name: parts[0] || '' }))
+  }
+
+  const createNewForRel = async () => {
+    if (!createNewForm.first_name.trim() || !createNewForm.last_name.trim()) return
+    setCreatingNew(true)
+    const { data, error } = await supabase.from('deceased').insert({
+      first_name: createNewForm.first_name.trim(),
+      last_name: createNewForm.last_name.trim(),
+      date_of_birth_verbatim: createNewForm.date_of_birth_verbatim.trim() || null,
+      date_of_death_verbatim: createNewForm.date_of_death_verbatim.trim() || null,
+      cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+    }).select('*').single()
+    setCreatingNew(false)
+    if (error) { alert('Error creating record: ' + error.message); return }
+    setAddRelTarget({ ...data, full_name: [data.first_name, data.last_name].filter(Boolean).join(' ') })
+    setShowCreateNew(false)
   }
 
   // ── Add relationship ────────────────────────────────────────────────────────
@@ -571,6 +599,9 @@ export default function PersonView({ onBack }) {
                           selected.date_of_death_verbatim && 'd. ' + fmtDate(selected.date_of_death_verbatim, selected.date_of_death_parsed)]
                           .filter(Boolean).join('  ·  ')}
                       </p>
+                      {selected.card_number && (
+                        <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '2px 0 0' }}>Card #{selected.card_number}</p>
+                      )}
                     </div>
                   </div>
                   {!editingPerson ? (
@@ -632,21 +663,21 @@ export default function PersonView({ onBack }) {
                         <p style={fieldValue}>{selected.church_event_type}{selected.church_event_date_verbatim ? ' — ' + selected.church_event_date_verbatim : ''}</p>
                       </div>
                     )}
-                    {selected.notes && (
-                      <div style={{ gridColumn: '1 / -1' }}>
-                        <p style={fieldLabel}>notes</p>
-                        <p style={fieldValue}>{selected.notes}</p>
-                      </div>
-                    )}
                     {selected.biography && (
                       <div style={{ gridColumn: '1 / -1' }}>
                         <p style={fieldLabel}>biography</p>
                         <p style={{ ...fieldValue, lineHeight: 1.6 }}>{selected.biography}</p>
                       </div>
                     )}
-                    {!selected.maiden_name && !selected.church_event_type && !selected.notes && !selected.biography && (
+                    {!selected.maiden_name && !selected.church_event_type && !selected.biography && (
                       <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', margin: 0, gridColumn: '1 / -1' }}>No additional details recorded.</p>
                     )}
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <p style={fieldLabel}>notes</p>
+                      <p style={{ ...fieldValue, color: selected.notes ? undefined : 'var(--color-text-tertiary)', fontStyle: selected.notes ? 'normal' : 'italic' }}>
+                        {selected.notes || 'No notes — click Edit to add'}
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
@@ -655,7 +686,7 @@ export default function PersonView({ onBack }) {
               <div style={card}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                   <p style={sectionLabel}>Family connections ({kinship.length})</p>
-                  <button onClick={() => { setShowAddRel(!showAddRel); setAddRelTarget(null); setAddRelResults([]); setAddRelSearch('') }}>
+                  <button onClick={() => { setShowAddRel(!showAddRel); setAddRelTarget(null); setAddRelResults([]); setAddRelSearch(''); setAddRelSearched(false); setShowCreateNew(false); setCreateNewForm({ first_name: '', last_name: '', date_of_birth_verbatim: '', date_of_death_verbatim: '' }) }}>
                     {showAddRel ? 'Cancel' : '+ Add relationship'}
                   </button>
                 </div>
@@ -663,51 +694,106 @@ export default function PersonView({ onBack }) {
                 {/* Add relationship panel */}
                 {showAddRel && (
                   <div style={{ background: 'var(--color-background-secondary)', borderRadius: 'var(--border-radius-md)', padding: '12px 14px', marginBottom: 16, border: '0.5px solid var(--color-border-secondary)' }}>
-                    <p style={{ ...fieldLabel, marginBottom: 8 }}>Search for person to link</p>
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                      <input value={addRelSearch} onChange={e => setAddRelSearch(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && searchForRel()}
-                        placeholder="Name…" style={{ flex: 1 }} />
-                      <button onClick={searchForRel}>Search</button>
-                    </div>
-                    {addRelResults.length > 0 && !addRelTarget && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto', marginBottom: 10 }}>
-                        {addRelResults.map(r => (
-                          <div key={r.deceased_id} onClick={() => setAddRelTarget(r)}
-                            style={{ padding: '6px 10px', borderRadius: 'var(--border-radius-md)', border: '0.5px solid var(--color-border-tertiary)', cursor: 'pointer', background: 'var(--color-background-primary)' }}>
-                            <p style={{ fontSize: 13, margin: 0, fontWeight: 500 }}>{r.full_name}</p>
-                            <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: 0 }}>
-                              {[r.date_of_birth_verbatim && 'b. ' + fmtDate(r.date_of_birth_verbatim, r.date_of_birth_parsed), r.date_of_death_verbatim && 'd. ' + fmtDate(r.date_of_death_verbatim, r.date_of_death_parsed)].filter(Boolean).join(' · ')}
-                            </p>
-                          </div>
-                        ))}
+
+                    {/* Step 1: relationship type (always visible) */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                      <div>
+                        <p style={fieldLabel}>{selected.first_name} is…</p>
+                        <select value={addRelForm.relationship_type} onChange={e => setAddRelForm(p => ({ ...p, relationship_type: e.target.value }))}>
+                          <option value="child">child of</option>
+                          <option value="parent">parent of</option>
+                          <option value="spouse">spouse of</option>
+                          <option value="sibling">sibling of</option>
+                          <option value="unknown">unknown relation of</option>
+                        </select>
                       </div>
-                    )}
-                    {addRelTarget && (
-                      <div style={{ marginBottom: 10 }}>
+                      <div>
+                        <p style={fieldLabel}>confidence</p>
+                        <select value={addRelForm.confidence} onChange={e => setAddRelForm(p => ({ ...p, confidence: e.target.value }))}>
+                          {CONFIDENCE_LEVELS.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Step 2: search or pick target */}
+                    {!addRelTarget ? (
+                      <>
+                        <p style={{ ...fieldLabel, marginBottom: 6 }}>Search for person</p>
+                        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                          <input value={addRelSearch} onChange={e => { setAddRelSearch(e.target.value); setAddRelSearched(false) }}
+                            onKeyDown={e => e.key === 'Enter' && searchForRel()}
+                            placeholder="First Last or Last, First…" style={{ flex: 1 }} />
+                          <button onClick={searchForRel}>Search</button>
+                        </div>
+                        {addRelResults.length > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 200, overflowY: 'auto', marginBottom: 8 }}>
+                            {addRelResults.map(r => (
+                              <div key={r.deceased_id} onClick={() => setAddRelTarget(r)}
+                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', borderRadius: 'var(--border-radius-md)', border: '0.5px solid var(--color-border-tertiary)', cursor: 'pointer', background: 'var(--color-background-primary)' }}>
+                                <div>
+                                  <p style={{ fontSize: 13, margin: 0, fontWeight: 500 }}>{r.full_name}</p>
+                                  <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: 0 }}>
+                                    {[r.date_of_birth_verbatim && 'b. ' + fmtDate(r.date_of_birth_verbatim, r.date_of_birth_parsed), r.date_of_death_verbatim && 'd. ' + fmtDate(r.date_of_death_verbatim, r.date_of_death_parsed)].filter(Boolean).join(' · ')}
+                                  </p>
+                                </div>
+                                <div style={{ display: 'flex', gap: 4 }}>
+                                  {r.is_occupant && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: 'var(--color-background-success)', color: 'var(--color-text-success)', border: '0.5px solid var(--color-border-success)' }}>⬛ buried</span>}
+                                  {r.is_mentioned && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: 'var(--color-background-warning)', color: 'var(--color-text-warning)', border: '0.5px solid var(--color-border-warning)' }}>📝 mentioned</span>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {addRelSearched && addRelResults.length === 0 && (
+                          <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 8 }}>No results found.</p>
+                        )}
+                        {addRelSearched && !showCreateNew && (
+                          <button onClick={() => setShowCreateNew(true)} style={{ fontSize: 12, marginBottom: 8 }}>
+                            + Create new record{addRelSearch.trim() ? ` for "${addRelSearch.trim()}"` : ''}
+                          </button>
+                        )}
+                        {showCreateNew && (
+                          <div style={{ borderTop: '0.5px solid var(--color-border-tertiary)', paddingTop: 10, marginTop: 4 }}>
+                            <p style={{ ...fieldLabel, marginBottom: 8 }}>New person record</p>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                              <div>
+                                <p style={fieldLabel}>first name *</p>
+                                <input value={createNewForm.first_name} onChange={e => setCreateNewForm(p => ({ ...p, first_name: e.target.value }))} />
+                              </div>
+                              <div>
+                                <p style={fieldLabel}>last name *</p>
+                                <input value={createNewForm.last_name} onChange={e => setCreateNewForm(p => ({ ...p, last_name: e.target.value }))} />
+                              </div>
+                              <div>
+                                <p style={fieldLabel}>birth date</p>
+                                <input value={createNewForm.date_of_birth_verbatim} onChange={e => setCreateNewForm(p => ({ ...p, date_of_birth_verbatim: e.target.value }))} placeholder="as inscribed" />
+                              </div>
+                              <div>
+                                <p style={fieldLabel}>death date</p>
+                                <input value={createNewForm.date_of_death_verbatim} onChange={e => setCreateNewForm(p => ({ ...p, date_of_death_verbatim: e.target.value }))} placeholder="as inscribed" />
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button onClick={createNewForRel} disabled={creatingNew || !createNewForm.first_name.trim() || !createNewForm.last_name.trim()}>
+                                {creatingNew ? 'Creating…' : 'Create & select'}
+                              </button>
+                              <button onClick={() => setShowCreateNew(false)}>Cancel</button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      /* Step 3: confirm with selected target */
+                      <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--color-background-info)', borderRadius: 'var(--border-radius-md)', marginBottom: 10 }}>
                           <Avatar name={addRelTarget.full_name} size={28} color="info" />
                           <p style={{ fontSize: 13, margin: 0, fontWeight: 500, color: 'var(--color-text-info)' }}>{addRelTarget.full_name}</p>
-                          <button onClick={() => setAddRelTarget(null)} style={{ marginLeft: 'auto', fontSize: 11 }}>change</button>
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                          <div>
-                            <p style={fieldLabel}>relationship type</p>
-                            <select value={addRelForm.relationship_type} onChange={e => setAddRelForm(p => ({ ...p, relationship_type: e.target.value }))}>
-                              {RELATIONSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <p style={fieldLabel}>confidence</p>
-                            <select value={addRelForm.confidence} onChange={e => setAddRelForm(p => ({ ...p, confidence: e.target.value }))}>
-                              {CONFIDENCE_LEVELS.map(t => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                          </div>
+                          <button onClick={() => { setAddRelTarget(null); setShowCreateNew(false) }} style={{ marginLeft: 'auto', fontSize: 11 }}>change</button>
                         </div>
                         <div style={{ marginBottom: 10 }}>
                           <p style={fieldLabel}>notes (evidence)</p>
                           <input value={addRelForm.notes} onChange={e => setAddRelForm(p => ({ ...p, notes: e.target.value }))}
-                            placeholder="e.g. wife of Samuel Hopkins per Malman p.183" />
+                            placeholder="e.g. Son of per stone inscription" />
                         </div>
                         <button onClick={addRel} disabled={savingAddRel}>
                           {savingAddRel ? 'Adding…' : `Add — ${selected.first_name} is ${addRelForm.relationship_type} of ${addRelTarget.first_name}`}
@@ -722,12 +808,12 @@ export default function PersonView({ onBack }) {
                 )}
 
                 {/* Relationship groups */}
-                {['parent', 'spouse', 'child', 'sibling', 'unknown'].map(relType => {
+                {['child', 'spouse', 'parent', 'sibling', 'unknown'].map(relType => {
                   const group = grouped[relType]
                   if (group.length === 0) return null
                   return (
                     <div key={relType} style={{ marginBottom: 16 }}>
-                      <p style={sectionLabel}>{relType === 'child' ? `children (${group.length})` : relType === 'parent' ? 'parents' : relType === 'spouse' ? 'spouse(s)' : relType + 's'}</p>
+                      <p style={sectionLabel}>{relType === 'parent' ? `children (${group.length})` : relType === 'child' ? `parents (${group.length})` : relType === 'spouse' ? 'spouse(s)' : relType + 's'}</p>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                         {group.map(rel => {
                           const isEditing = editingRelId === rel.kinship_id
