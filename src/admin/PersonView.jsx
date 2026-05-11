@@ -170,9 +170,9 @@ export default function PersonView({ onBack }) {
     // All stone links (may appear on multiple stones as occupant or mentioned)
     const { data: sd, error: sdError } = await supabase
       .from('stone_deceased')
-      .select('stone_deceased_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
+      .select('stone_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
       .eq('deceased_id', record.deceased_id)
-      .order('role') // 'occupant' sorts before 'mentioned'
+      .order('role', { ascending: false }) // 'occupant' > 'mentioned' alphabetically
     if (sdError) console.error('Error loading stone data:', sdError)
     setStoneLinks(sd || [])
     setPhotoIndex(0)
@@ -296,7 +296,7 @@ export default function PersonView({ onBack }) {
     // Refresh stone links
     const { data: sd } = await supabase
       .from('stone_deceased')
-      .select('stone_deceased_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
+      .select('stone_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
       .eq('deceased_id', selected.deceased_id).order('role')
     setStoneLinks(sd || [])
   }
@@ -308,7 +308,7 @@ export default function PersonView({ onBack }) {
     await supabase.from('stone_photos').delete().match(identifier)
     const { data: sd } = await supabase
       .from('stone_deceased')
-      .select('stone_deceased_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
+      .select('stone_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
       .eq('deceased_id', selected.deceased_id).order('role')
     setStoneLinks(sd || [])
     setPhotoIndex(0)
@@ -323,7 +323,7 @@ export default function PersonView({ onBack }) {
     setTogglingRole(link.stones.stone_id)
     await supabase.from('stone_deceased')
       .update({ role: newRole })
-      .eq('stone_deceased_id', link.stone_deceased_id)
+      .eq('stone_id', link.stone_id).eq('deceased_id', selected.deceased_id)
     // If promoting to occupant, make that stone's first photo primary
     if (newRole === 'occupant' && link.stones?.stone_photos?.length > 0) {
       const firstPhoto = link.stones.stone_photos[0]
@@ -333,7 +333,7 @@ export default function PersonView({ onBack }) {
     }
     const { data: sd } = await supabase
       .from('stone_deceased')
-      .select('stone_deceased_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
+      .select('stone_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
       .eq('deceased_id', selected.deceased_id).order('role')
     setStoneLinks(sd || [])
     setTogglingRole(null)
@@ -449,7 +449,7 @@ export default function PersonView({ onBack }) {
   const allPhotos = stoneLinks.flatMap(link =>
     (link.stones?.stone_photos || [])
       .sort((a, b) => (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0))
-      .map(p => ({ ...p, stone_id: link.stones.stone_id, role: link.role, stone_deceased_id: link.stone_deceased_id }))
+      .map(p => ({ ...p, stone_id: link.stones.stone_id, role: link.role }))
   )
   const stoneData = stoneLinks.find(l => l.role === 'occupant')?.stones || stoneLinks[0]?.stones || null
   const currentPhoto = allPhotos[photoIndex] || null
@@ -640,7 +640,7 @@ export default function PersonView({ onBack }) {
 
                 {/* Stone links — inscription, condition, role toggle */}
                 {stoneLinks.map(link => (
-                  <div key={link.stone_deceased_id} style={{ marginBottom: 12 }}>
+                  <div key={link.stone_id} style={{ marginBottom: 12 }}>
                     {link.stones?.inscription_text && (
                       <>
                         <p style={{ ...sectionLabel }}>Inscription</p>
