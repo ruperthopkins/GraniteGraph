@@ -168,9 +168,11 @@ export default function PersonView({ onBack }) {
     setEditForm(person || {})
 
     // All stone links (may appear on multiple stones as occupant or mentioned)
+    // Note: stone_id omitted from top-level select — PostgREST shadows it when stones(stone_id,...) is also selected.
+    // Use link.stones.stone_id throughout instead.
     const { data: sd, error: sdError } = await supabase
       .from('stone_deceased')
-      .select('stone_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
+      .select('role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
       .eq('deceased_id', record.deceased_id)
       .order('role', { ascending: false }) // 'occupant' > 'mentioned' alphabetically
     if (sdError) console.error('Error loading stone data:', sdError)
@@ -309,30 +311,38 @@ export default function PersonView({ onBack }) {
   const refreshStoneLinks = async (deceasedId) => {
     const { data: sd } = await supabase
       .from('stone_deceased')
-      .select('stone_id, role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
+      .select('role, stones(stone_id, inscription_text, stone_condition, condition_notes, volunteer_notes, flags, stone_photos(*))')
       .eq('deceased_id', deceasedId)
       .order('role', { ascending: false })
     setStoneLinks(sd || [])
   }
 
   const toggleRole = async (link) => {
+    const stoneId = link.stones?.stone_id
+    if (!stoneId) { alert('Cannot toggle role: stone ID missing.'); return }
     const newRole = link.role === 'occupant' ? 'mentioned' : 'occupant'
     if (newRole === 'mentioned' && kinship.length === 0) {
       if (!window.confirm('Switching to "Mentioned" requires a relationship to be recorded. Continue and add a relationship after?')) return
     }
-    setTogglingRole(link.stone_id)
-    const { error } = await supabase.from('stone_deceased')
+    setTogglingRole(stoneId)
+    const { data: updated, error } = await supabase.from('stone_deceased')
       .update({ role: newRole })
-      .eq('stone_id', link.stone_id).eq('deceased_id', selected.deceased_id)
+      .eq('stone_id', stoneId).eq('deceased_id', selected.deceased_id)
+      .select()
     if (error) {
       alert('Could not update role: ' + error.message)
+      setTogglingRole(null)
+      return
+    }
+    if (!updated?.length) {
+      alert('No matching row found — role was not changed.')
       setTogglingRole(null)
       return
     }
     // If promoting to occupant, make that stone's first photo primary
     if (newRole === 'occupant' && link.stones?.stone_photos?.length > 0) {
       const firstPhoto = link.stones.stone_photos[0]
-      await supabase.from('stone_photos').update({ is_primary: false }).neq('stone_id', link.stone_id)
+      await supabase.from('stone_photos').update({ is_primary: false }).neq('stone_id', stoneId)
       await supabase.from('stone_photos').update({ is_primary: true })
         .match(firstPhoto.id ? { id: firstPhoto.id } : { photo_url: firstPhoto.photo_url })
     }
@@ -641,7 +651,7 @@ export default function PersonView({ onBack }) {
 
                 {/* Stone links — inscription, condition, role toggle */}
                 {stoneLinks.map(link => (
-                  <div key={link.stone_id} style={{ marginBottom: 12 }}>
+                  <div key={link.stones?.stone_id} style={{ marginBottom: 12 }}>
                     {link.stones?.inscription_text && (
                       <>
                         <p style={{ ...sectionLabel }}>Inscription</p>
