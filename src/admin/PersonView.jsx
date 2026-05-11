@@ -10,6 +10,9 @@ import { mergePersons } from '../utils/mergePersons'
 const RELATIONSHIP_TYPES = ['spouse', 'parent', 'child', 'sibling', 'unknown']
 const CONFIDENCE_LEVELS = ['confirmed', 'probable', 'possible', 'uncertain']
 const SOURCE_TYPES = ['stone_inscription', 'document', 'church_record', 'census', 'colonial_document', 'family_record', 'ai_extracted', 'volunteer', 'admin']
+// Human-readable labels — kept in sync with field tool REL_LABEL
+const REL_LABEL = { spouse: 'Spouse of', parent: 'Parent of', child: 'Child of', sibling: 'Sibling of', unknown: 'Related to' }
+const SOURCE_LABEL = { stone_inscription: 'Stone inscription', document: 'Document', church_record: 'Church record', census: 'Census', colonial_document: 'Colonial document', family_record: 'Family record', ai_extracted: 'AI extracted', volunteer: 'Volunteer', admin: 'Admin' }
 
 const MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 function fmtDate(verbatim, parsed) {
@@ -60,13 +63,9 @@ function ConfidenceBadge({ value }) {
 // ── Source badge ──────────────────────────────────────────────────────────────
 function SourceBadge({ value }) {
   const labels = {
-    stone_inscription: 'stone',
-    document: 'document',
-    church_record: 'church',
-    census: 'census',
-    family_record: 'family record',
-    ai_extracted: 'AI',
-    genealogy_record: 'genealogy',
+    stone_inscription: 'stone', document: 'document', church_record: 'church',
+    census: 'census', colonial_document: 'colonial doc', family_record: 'family record',
+    ai_extracted: 'AI', genealogy_record: 'genealogy', volunteer: 'volunteer', admin: 'admin',
   }
   return (
     <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
@@ -933,7 +932,7 @@ export default function PersonView({ onBack }) {
                             placeholder="e.g. Son of per stone inscription" />
                         </div>
                         <button onClick={addRel} disabled={savingAddRel}>
-                          {savingAddRel ? 'Adding…' : `Add — ${selected.first_name} is ${addRelForm.relationship_type} of ${addRelTarget.first_name}`}
+                          {savingAddRel ? 'Adding…' : `Add — ${selected.first_name} is ${REL_LABEL[addRelForm.relationship_type]?.toLowerCase() || addRelForm.relationship_type} ${addRelTarget.first_name}`}
                         </button>
                       </div>
                     )}
@@ -995,7 +994,7 @@ export default function PersonView({ onBack }) {
                                       <p style={fieldLabel}>source</p>
                                       <select value={editRelForm.source || rel.source}
                                         onChange={e => setEditRelForm(p => ({ ...p, source: e.target.value }))}>
-                                        {SOURCE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                        {SOURCE_TYPES.map(t => <option key={t} value={t}>{SOURCE_LABEL[t] || t}</option>)}
                                       </select>
                                     </div>
                                   </div>
@@ -1012,7 +1011,7 @@ export default function PersonView({ onBack }) {
                               ) : (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                   <Avatar name={relative?.full_name} size={30}
-                                    color={isDuplicate ? 'warning' : relative?.is_photographed ? 'success' : 'secondary'} />
+                                    color={isDuplicate ? 'warning' : relative?.is_occupant ? 'success' : relative?.is_mentioned ? 'warning' : 'secondary'} />
                                   <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                       <p style={{ fontWeight: 500, fontSize: 13, margin: 0 }}>
@@ -1027,6 +1026,8 @@ export default function PersonView({ onBack }) {
                                     <div style={{ display: 'flex', gap: 8, marginTop: 2, flexWrap: 'wrap', alignItems: 'center' }}>
                                       {relative?.date_of_birth_verbatim && <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>b. {relative.date_of_birth_verbatim}</span>}
                                       {relative?.date_of_death_verbatim && <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>d. {relative.date_of_death_verbatim}</span>}
+                                      {relative?.is_occupant && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 99, background: 'var(--color-background-success)', color: 'var(--color-text-success)', border: '0.5px solid var(--color-border-success)' }}>⬛</span>}
+                                      {relative?.is_mentioned && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 99, background: 'var(--color-background-warning)', color: 'var(--color-text-warning)', border: '0.5px solid var(--color-border-warning)' }}>📝</span>}
                                       <ConfidenceBadge value={rel.confidence} />
                                       <SourceBadge value={rel.source} />
                                     </div>
