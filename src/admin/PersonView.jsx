@@ -73,6 +73,36 @@ function SourceBadge({ value }) {
   )
 }
 
+// ── Tree person box ───────────────────────────────────────────────────────────
+function TreeBox({ person, isFocal = false, childCount = 0, onClick }) {
+  if (!person) return null
+  const name = person.full_name || [person.first_name, person.last_name].filter(Boolean).join(' ') || '?'
+  const bYear = (person.date_of_birth_verbatim || '').match(/\b(1[5-9]\d{2}|20\d{2})\b/)?.[1]
+  const dYear = (person.date_of_death_verbatim || '').match(/\b(1[5-9]\d{2}|20\d{2})\b/)?.[1]
+  return (
+    <div onClick={isFocal ? undefined : onClick} title={isFocal ? name : `View ${name}`} style={{
+      width: 124, padding: '7px 9px', borderRadius: 'var(--border-radius-md)', flexShrink: 0,
+      border: isFocal ? '1.5px solid var(--color-border-info)' : '0.5px solid var(--color-border-tertiary)',
+      background: isFocal ? 'var(--color-background-info)' : 'var(--color-background-primary)',
+      cursor: isFocal ? 'default' : 'pointer',
+    }}>
+      <p style={{ fontSize: 11, fontWeight: isFocal ? 600 : 500, margin: '0 0 2px', lineHeight: 1.3,
+        color: isFocal ? 'var(--color-text-info)' : 'var(--color-text-primary)',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</p>
+      {(bYear || dYear) && (
+        <p style={{ fontSize: 10, color: 'var(--color-text-secondary)', margin: '0 0 4px', lineHeight: 1 }}>
+          {bYear && `b.${bYear}`}{bYear && dYear && ' '}{dYear && `d.${dYear}`}
+        </p>
+      )}
+      <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+        {person.is_occupant && <span style={{ fontSize: 9, padding: '0 4px', borderRadius: 99, background: 'var(--color-background-success)', color: 'var(--color-text-success)', border: '0.5px solid var(--color-border-success)' }}>⬛</span>}
+        {person.is_mentioned && <span style={{ fontSize: 9, padding: '0 4px', borderRadius: 99, background: 'var(--color-background-warning)', color: 'var(--color-text-warning)', border: '0.5px solid var(--color-border-warning)' }}>📝</span>}
+        {childCount > 0 && <span style={{ fontSize: 9, padding: '0 4px', borderRadius: 99, background: 'var(--color-background-secondary)', color: 'var(--color-text-tertiary)', border: '0.5px solid var(--color-border-tertiary)' }}>{childCount}↓</span>}
+      </div>
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function PersonView({ onBack }) {
   const [searchQuery, setSearchQuery] = useState('')
@@ -109,6 +139,10 @@ export default function PersonView({ onBack }) {
   const [showCreateNew, setShowCreateNew] = useState(false)
   const [createNewForm, setCreateNewForm] = useState({ first_name: '', last_name: '', date_of_birth_verbatim: '', date_of_death_verbatim: '' })
   const [creatingNew, setCreatingNew] = useState(false)
+
+  // Family tree
+  const [treeGrandparents, setTreeGrandparents] = useState({})     // parentId → [person, ...]
+  const [childDescendantCounts, setChildDescendantCounts] = useState({}) // childId → count
 
   // Duplicate finder / merge
   const [dupCandidates, setDupCandidates]         = useState([])
@@ -154,6 +188,8 @@ export default function PersonView({ onBack }) {
     setMergeTarget(null)
     setMergeFieldChoices({})
     setMergeLog(null)
+    setTreeGrandparents({})
+    setChildDescendantCounts({})
 
     // Full deceased record
     const { data: person, error: personError } = await supabase
@@ -197,6 +233,39 @@ export default function PersonView({ onBack }) {
     } else {
       setKinship([])
     }
+
+    // Tree: load grandparents + child descendant counts in parallel
+    const parentIds = (kin || []).filter(k => k.relationship_type === 'child').map(k => k.relative_deceased_id)
+    const childIds  = (kin || []).filter(k => k.relationship_type === 'parent').map(k => k.relative_deceased_id)
+    const [gpRows, ccRows] = await Promise.all([
+      parentIds.length > 0
+        ? supabase.from('kinship').select('primary_deceased_id, relative_deceased_id')
+            .in('primary_deceased_id', parentIds).eq('relationship_type', 'child')
+        : { data: [] },
+      childIds.length > 0
+        ? supabase.from('kinship').select('primary_deceased_id')
+            .in('primary_deceased_id', childIds).eq('relationship_type', 'parent')
+        : { data: [] },
+    ])
+    const gpMap = {}
+    const gpIds = [...new Set((gpRows.data || []).map(k => k.relative_deceased_id))]
+    if (gpIds.length > 0) {
+      const { data: gpRecs } = await supabase.from('v_deceased_search').select('*').in('deceased_id', gpIds)
+      const gpLookup = {}
+      ;(gpRecs || []).forEach(r => { gpLookup[r.deceased_id] = r })
+      ;(gpRows.data || []).forEach(k => {
+        if (!gpMap[k.primary_deceased_id]) gpMap[k.primary_deceased_id] = []
+        const gp = gpLookup[k.relative_deceased_id]
+        if (gp) gpMap[k.primary_deceased_id].push(gp)
+      })
+    }
+    setTreeGrandparents(gpMap)
+    const childCountMap = {}
+    ;(ccRows.data || []).forEach(k => {
+      childCountMap[k.primary_deceased_id] = (childCountMap[k.primary_deceased_id] || 0) + 1
+    })
+    setChildDescendantCounts(childCountMap)
+
     setLoading(false)
   }, [])
 
@@ -821,6 +890,75 @@ export default function PersonView({ onBack }) {
                         {selected.notes || 'No notes — click Edit to add'}
                       </p>
                     </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Family tree */}
+              <div style={card}>
+                <p style={sectionLabel}>Family tree</p>
+                {kinship.length === 0 ? (
+                  <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)', textAlign: 'center', margin: 0 }}>No family connections recorded.</p>
+                ) : (
+                  <div>
+                    {/* Grandparents */}
+                    {Object.keys(treeGrandparents).length > 0 && (<>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+                        {kinship.filter(k => k.relationship_type === 'child').map((rel, i) => {
+                          const gps = treeGrandparents[rel.relative_deceased_id] || []
+                          if (gps.length === 0) return null
+                          return (
+                            <div key={rel.relative_deceased_id} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                              {i > 0 && <div style={{ width: 1, background: 'var(--color-border-tertiary)', alignSelf: 'stretch', margin: '4px 2px' }} />}
+                              {gps.map(gp => <TreeBox key={gp.deceased_id} person={gp} onClick={() => loadPerson(gp)} />)}
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'center', height: 14 }}>
+                        <div style={{ width: 1, background: 'var(--color-border-tertiary)' }} />
+                      </div>
+                    </>)}
+
+                    {/* Parents */}
+                    {kinship.filter(k => k.relationship_type === 'child').length > 0 && (<>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+                        {kinship.filter(k => k.relationship_type === 'child').map(rel => (
+                          <TreeBox key={rel.relative_deceased_id} person={rel.relative} onClick={() => rel.relative && loadPerson(rel.relative)} />
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'center', height: 14 }}>
+                        <div style={{ width: 1, background: 'var(--color-border-tertiary)' }} />
+                      </div>
+                    </>)}
+
+                    {/* Focal person + spouses */}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' }}>
+                      <TreeBox isFocal person={{
+                        ...selected,
+                        full_name: [selected.first_name, selected.middle_name, selected.last_name].filter(Boolean).join(' '),
+                        is_occupant: stoneLinks.some(l => l.role === 'occupant'),
+                        is_mentioned: stoneLinks.some(l => l.role === 'mentioned'),
+                      }} />
+                      {kinship.filter(k => k.relationship_type === 'spouse').map((rel, i) => (<>
+                        {i === 0 && <span key="dash" style={{ fontSize: 14, color: 'var(--color-text-tertiary)' }}>—</span>}
+                        <TreeBox key={rel.relative_deceased_id} person={rel.relative} onClick={() => rel.relative && loadPerson(rel.relative)} />
+                      </>))}
+                    </div>
+
+                    {/* Children */}
+                    {kinship.filter(k => k.relationship_type === 'parent').length > 0 && (<>
+                      <div style={{ display: 'flex', justifyContent: 'center', height: 14 }}>
+                        <div style={{ width: 1, background: 'var(--color-border-tertiary)' }} />
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+                        {kinship.filter(k => k.relationship_type === 'parent').map(rel => (
+                          <TreeBox key={rel.relative_deceased_id} person={rel.relative}
+                            childCount={childDescendantCounts[rel.relative_deceased_id] || 0}
+                            onClick={() => rel.relative && loadPerson(rel.relative)} />
+                        ))}
+                      </div>
+                    </>)}
                   </div>
                 )}
               </div>
