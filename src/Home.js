@@ -294,6 +294,79 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     })
   }
 
+  const updateRelField = (pIndex, rIndex, field, value) => {
+    setStoneMatrix(prev => ({
+      ...prev,
+      people: prev.people.map((p, i) => i !== pIndex ? p : {
+        ...p,
+        relationships: p.relationships.map((r, ri) => ri !== rIndex ? r : { ...r, [field]: value })
+      })
+    }))
+  }
+
+  const searchRelatedPerson = async (pIndex, rIndex, name) => {
+    if (!name.trim()) return
+    setStoneMatrix(prev => ({
+      ...prev,
+      people: prev.people.map((p, i) => i !== pIndex ? p : {
+        ...p,
+        relationships: p.relationships.map((r, ri) => ri !== rIndex ? r : { ...r, relSearching: true, relSearchResults: null })
+      })
+    }))
+    const terms = name.trim().split(/\s+/)
+    let dbQuery = supabase.from('v_deceased_search').select('*')
+    if (terms.length === 1) {
+      dbQuery = dbQuery.or(`first_name.ilike.*${terms[0]}*,last_name.ilike.*${terms[0]}*,maiden_name.ilike.*${terms[0]}*`)
+    } else {
+      const lastName = terms[terms.length - 1]
+      const firstTerms = terms.slice(0, -1)
+      dbQuery = dbQuery.ilike('last_name', `%${lastName}%`)
+      firstTerms.forEach(term => { dbQuery = dbQuery.or(`first_name.ilike.%${term}%,middle_name.ilike.%${term}%`) })
+    }
+    const { data } = await dbQuery.limit(5)
+    setStoneMatrix(prev => ({
+      ...prev,
+      people: prev.people.map((p, i) => i !== pIndex ? p : {
+        ...p,
+        relationships: p.relationships.map((r, ri) => ri !== rIndex ? r : { ...r, relSearching: false, relSearchResults: data || [] })
+      })
+    }))
+  }
+
+  const confirmRelationshipExternal = (pIndex, rIndex, rel, record) => {
+    const objectName = record.full_name || [record.first_name, record.last_name].filter(Boolean).join(' ')
+    setStoneMatrix(prev => {
+      const people = [...prev.people]
+      const person = { ...people[pIndex] }
+      const rels = [...person.relationships]
+      rels.splice(rIndex, 1)
+      person.relationships = rels
+      person.confirmedRelationships = [...person.confirmedRelationships, {
+        type: rel.type, hint: rel.hint, objectIndex: null,
+        objectDeceasedId: record.deceased_id, objectName
+      }]
+      people[pIndex] = person
+      return { ...prev, people }
+    })
+  }
+
+  const confirmRelationshipNameOnly = (pIndex, rIndex, rel) => {
+    const objectName = rel.relatedName || rel.rawNames[0] || 'Unknown'
+    setStoneMatrix(prev => {
+      const people = [...prev.people]
+      const person = { ...people[pIndex] }
+      const rels = [...person.relationships]
+      rels.splice(rIndex, 1)
+      person.relationships = rels
+      person.confirmedRelationships = [...person.confirmedRelationships, {
+        type: rel.type, hint: rel.hint, objectIndex: null,
+        objectDeceasedId: null, objectName
+      }]
+      people[pIndex] = person
+      return { ...prev, people }
+    })
+  }
+
   // ── FIX #1: Strip punctuation/initials for cleaner search seeds ──────────
   const cleanNameForSearch = (name) => {
     return name
@@ -305,6 +378,10 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
   }
 
   const proceedToMatch = () => {
+    // Warm up the Supabase connection so it's live before the volunteer hits Search.
+    // Gemini analysis can take 10-30s, enough for the connection to go cold and return
+    // an empty result on the first query even though data exists.
+    supabase.from('v_deceased_search').select('deceased_id').limit(1)
     if (stoneMatrix?.people?.length > 0) {
       const firstPerson = stoneMatrix.people[0]
 
@@ -531,23 +608,43 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       for (const person of stoneMatrix.people) {
         if (!person.matchedRecord) continue
         for (const rel of person.confirmedRelationships) {
-          const objectPerson = stoneMatrix.people[rel.objectIndex]
-          if (!objectPerson?.matchedRecord) continue
           const inverseType = INVERSE_REL[rel.type] || 'unknown'
-          await Promise.all([
-            supabase.from('kinship').insert({
-              primary_deceased_id: person.matchedRecord.deceased_id,
-              relative_deceased_id: objectPerson.matchedRecord.deceased_id,
-              relationship_type: rel.type, source: 'stone_inscription',
-              confidence: 'probable', notes: rel.hint
-            }),
-            supabase.from('kinship').insert({
-              primary_deceased_id: objectPerson.matchedRecord.deceased_id,
-              relative_deceased_id: person.matchedRecord.deceased_id,
-              relationship_type: inverseType, source: 'stone_inscription',
-              confidence: 'probable', notes: rel.hint
-            })
-          ])
+          if (rel.objectDeceasedId) {
+            // External person found via database search
+            await Promise.all([
+              supabase.from('kinship').insert({
+                primary_deceased_id: person.matchedRecord.deceased_id,
+                relative_deceased_id: rel.objectDeceasedId,
+                relationship_type: rel.type, source: 'stone_inscription',
+                confidence: 'probable', notes: rel.hint
+              }),
+              supabase.from('kinship').insert({
+                primary_deceased_id: rel.objectDeceasedId,
+                relative_deceased_id: person.matchedRecord.deceased_id,
+                relationship_type: inverseType, source: 'stone_inscription',
+                confidence: 'probable', notes: rel.hint
+              })
+            ])
+          } else if (rel.objectIndex != null) {
+            // Person on same stone
+            const objectPerson = stoneMatrix.people[rel.objectIndex]
+            if (!objectPerson?.matchedRecord) continue
+            await Promise.all([
+              supabase.from('kinship').insert({
+                primary_deceased_id: person.matchedRecord.deceased_id,
+                relative_deceased_id: objectPerson.matchedRecord.deceased_id,
+                relationship_type: rel.type, source: 'stone_inscription',
+                confidence: 'probable', notes: rel.hint
+              }),
+              supabase.from('kinship').insert({
+                primary_deceased_id: objectPerson.matchedRecord.deceased_id,
+                relative_deceased_id: person.matchedRecord.deceased_id,
+                relationship_type: inverseType, source: 'stone_inscription',
+                confidence: 'probable', notes: rel.hint
+              })
+            ])
+          }
+          // objectDeceasedId=null, objectIndex=null → name-only, no DB record to link
         }
       }
 
@@ -609,7 +706,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
 
   const selectSearchRecord = async (record) => {
     setSearchSelected(record); setSearchStoneData(null)
-    if (record.is_photographed) {
+    if (record.is_occupant) {
       const { data, error } = await supabase.from('stone_deceased')
         .select('stones ( stone_id, gps_accuracy_m, condition_notes, inscription_text, stone_photos ( photo_url, is_primary ) )')
         .eq('deceased_id', record.deceased_id).limit(1)
@@ -776,9 +873,13 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                   </div>
                 </div>
               )}
-              {!searchSelected.is_photographed && (
+              {!searchSelected.is_occupant && (
                 <div className="bg-gray-800 border border-gray-600 rounded-lg p-4">
-                  <p className="text-gray-300 text-sm mb-3">This stone has not been photographed yet.</p>
+                  <p className="text-gray-300 text-sm mb-3">
+                    {searchSelected.is_mentioned
+                      ? 'This person is mentioned on another stone but has no photographed stone of their own.'
+                      : 'This stone has not been photographed yet.'}
+                  </p>
                   <label style={{
                     display: 'block', width: '100%', padding: '14px',
                     backgroundColor: '#15803d', color: 'white', fontWeight: 'bold',
@@ -918,6 +1019,23 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                   </div>
                 </div>
 
+                {/* Maiden name */}
+                <div className="mb-2">
+                  <p className="text-gray-200 text-xs mb-1 font-medium">Maiden name (nee)</p>
+                  <input
+                    type="text"
+                    value={person.geminiData.maiden_name || ''}
+                    onChange={e => setStoneMatrix(prev => ({
+                      ...prev,
+                      people: prev.people.map((p, i) => i === pIndex
+                        ? { ...p, geminiData: { ...p.geminiData, maiden_name: e.target.value } }
+                        : p)
+                    }))}
+                    placeholder="Maiden name if shown on stone"
+                    className="w-full bg-white border-2 border-green-500 rounded p-2 text-gray-900 text-xs outline-none focus:ring-2 focus:ring-green-400 placeholder-gray-500 font-medium"
+                  />
+                </div>
+
                 {/* Kinship hints from Gemini */}
                 {person.geminiData.kinship_hints?.length > 0 && (
                   <p className="text-yellow-400 text-xs mb-2">{person.geminiData.kinship_hints.join(', ')}</p>
@@ -967,19 +1085,66 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                     {rel.hint && <p className="text-gray-400 text-xs mb-2">"{rel.hint}"</p>}
 
                     {/* Link to another person on stone */}
-                    <p className="text-gray-300 text-xs mb-1">Link to:</p>
-                    <div className="flex flex-wrap gap-1 mb-2">
-                      {stoneMatrix.people.filter((_, i) => i !== pIndex).map((otherPerson, oIndex) => {
-                        const actualIndex = oIndex >= pIndex ? oIndex + 1 : oIndex
-                        return (
-                          <button key={actualIndex}
-                            onClick={() => { confirmRelationship(pIndex, rel, actualIndex); skipRelationship(pIndex, rIndex) }}
-                            className="bg-green-700 hover:bg-green-600 text-white text-xs py-1 px-2 rounded">
-                            {otherPerson.correctedName || 'Person ' + (actualIndex + 1)}
-                          </button>
-                        )
-                      })}
+                    {stoneMatrix.people.filter((_, i) => i !== pIndex).length > 0 && (
+                      <>
+                        <p className="text-gray-300 text-xs mb-1">Link to person on this stone:</p>
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {stoneMatrix.people.filter((_, i) => i !== pIndex).map((otherPerson, oIndex) => {
+                            const actualIndex = oIndex >= pIndex ? oIndex + 1 : oIndex
+                            return (
+                              <button key={actualIndex}
+                                onClick={() => { confirmRelationship(pIndex, rel, actualIndex); skipRelationship(pIndex, rIndex) }}
+                                className="bg-green-700 hover:bg-green-600 text-white text-xs py-1 px-2 rounded">
+                                {otherPerson.correctedName || 'Person ' + (actualIndex + 1)}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Search database for external person */}
+                    <p className="text-gray-300 text-xs mb-1">Search database:</p>
+                    <div className="flex gap-1 mb-1">
+                      <input
+                        type="text"
+                        value={rel.relatedName ?? rel.rawNames[0] ?? ''}
+                        onChange={e => updateRelField(pIndex, rIndex, 'relatedName', e.target.value)}
+                        placeholder="Enter name to search…"
+                        className="bg-white border-2 border-green-500 text-gray-900 text-xs rounded px-2 py-1 flex-1 outline-none placeholder-gray-500"
+                      />
+                      <button
+                        onClick={() => searchRelatedPerson(pIndex, rIndex, rel.relatedName ?? rel.rawNames[0] ?? '')}
+                        className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-2 py-1 rounded"
+                      >
+                        {rel.relSearching ? '…' : 'Search'}
+                      </button>
                     </div>
+                    {rel.relSearchResults && rel.relSearchResults.length === 0 && (
+                      <p className="text-gray-400 text-xs mb-1">No results found.</p>
+                    )}
+                    {rel.relSearchResults && rel.relSearchResults.map((record, ri) => (
+                      <button key={ri}
+                        onClick={() => confirmRelationshipExternal(pIndex, rIndex, rel, record)}
+                        className="block w-full text-left bg-gray-600 hover:bg-gray-500 text-xs py-1 px-2 rounded mb-1">
+                        <span className="text-white">{record.full_name || [record.first_name, record.last_name].filter(Boolean).join(' ')}</span>
+                        <span className="text-gray-400">
+                          {record.birth_year ? ` b.${record.birth_year}` : ''}
+                          {record.death_year ? ` d.${record.death_year}` : ''}
+                        </span>
+                        {record.is_occupant && <span className="ml-1 text-green-400">⬛</span>}
+                        {record.is_mentioned && <span className="ml-1 text-yellow-300">📝</span>}
+                      </button>
+                    ))}
+                    {(rel.relatedName || rel.rawNames[0]) && (
+                      <button
+                        onClick={() => confirmRelationshipNameOnly(pIndex, rIndex, rel)}
+                        className="text-yellow-400 text-xs hover:text-yellow-300 block mb-1"
+                      >
+                        Confirm "{rel.relatedName || rel.rawNames[0]}" without DB match
+                      </button>
+                    )}
+
                     <button onClick={() => skipRelationship(pIndex, rIndex)}
                       className="text-gray-400 text-xs hover:text-gray-200">
                       Skip this relationship
@@ -1113,19 +1278,19 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                       {/* Only show results and skip/save actions when search is complete */}
                       {!matchSearching && matchSearchResults.map(record => (
                         <div key={record.deceased_id}
-                          className={'p-3 rounded-lg mb-2 cursor-pointer ' + (record.is_photographed ? 'bg-gray-700 border border-yellow-600' : 'bg-gray-700')}
+                          className={'p-3 rounded-lg mb-2 cursor-pointer ' + (record.is_occupant ? 'bg-gray-700 border border-yellow-600' : 'bg-gray-700')}
                           onClick={() => selectMatch(record)}>
-                          <p className={'font-bold text-sm ' + (record.is_photographed ? 'text-yellow-400' : 'text-white')}>
+                          <p className={'font-bold text-sm ' + (record.is_occupant ? 'text-yellow-400' : 'text-white')}>
                             {record.full_name}
-                            {record.is_photographed ? ' (already cataloged)' : ''}
                           </p>
-                          <p className="text-gray-100 text-xs">
-                            {record.date_of_death_verbatim && 'd. ' + record.date_of_death_verbatim}
-                            {record.maiden_name && ' | nee ' + record.maiden_name}
-                            {record.is_mentioned && !record.is_photographed && (
-                              <span className="ml-1 text-blue-300"> · mentioned on another stone</span>
-                            )}
-                          </p>
+                          <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                            <span className="text-gray-300 text-xs">
+                              {record.date_of_death_verbatim && 'd. ' + record.date_of_death_verbatim}
+                              {record.maiden_name && ' · nee ' + record.maiden_name}
+                            </span>
+                            {record.is_occupant && <span className="text-green-400 text-xs">⬛ Buried</span>}
+                            {record.is_mentioned && <span className="text-yellow-300 text-xs">📝 Mentioned</span>}
+                          </div>
                         </div>
                       ))}
 

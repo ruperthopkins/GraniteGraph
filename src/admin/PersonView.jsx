@@ -452,8 +452,9 @@ export default function PersonView({ onBack }) {
                       {r.maiden_name && <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>nee {r.maiden_name}</span>}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    {r.is_photographed && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'var(--color-background-success)', color: 'var(--color-text-success)', border: '0.5px solid var(--color-border-success)' }}>stone</span>}
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+                    {r.is_occupant && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'var(--color-background-success)', color: 'var(--color-text-success)', border: '0.5px solid var(--color-border-success)' }}>⬛ buried</span>}
+                    {r.is_mentioned && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'var(--color-background-warning)', color: 'var(--color-text-warning)', border: '0.5px solid var(--color-border-warning)' }}>📝 mentioned</span>}
                     {r.stone_count > 0 && <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{r.stone_count} stone{r.stone_count !== 1 ? 's' : ''}</span>}
                   </div>
                 </div>
