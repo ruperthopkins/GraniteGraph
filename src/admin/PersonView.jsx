@@ -325,12 +325,14 @@ export default function PersonView({ onBack }) {
       if (!window.confirm('Switching to "Mentioned" requires a relationship to be recorded. Continue and add a relationship after?')) return
     }
     setTogglingRole(stoneId)
-    console.log('toggleRole: stone_id=', stoneId, 'deceased_id=', selected.deceased_id, '→', newRole)
-    const { error } = await supabase.from('stone_deceased')
-      .update({ role: newRole })
-      .eq('stone_id', stoneId).eq('deceased_id', selected.deceased_id)
-    if (error) {
-      alert('Could not update role: ' + error.message)
+    const resp = await fetch('/api/toggle-role', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stone_id: stoneId, deceased_id: selected.deceased_id, role: newRole }),
+    })
+    if (!resp.ok) {
+      const { error } = await resp.json().catch(() => ({}))
+      alert('Could not update role: ' + (error || resp.statusText))
       setTogglingRole(null)
       return
     }
