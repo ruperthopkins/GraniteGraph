@@ -440,7 +440,13 @@ export default function PersonView({ onBack }) {
       },
     ]
     const { error } = await supabase.from('kinship').insert(rows)
-    if (error) { alert('Add failed: ' + error.message) }
+    if (error) {
+      if (error.code === '23505') {
+        alert('A relationship with this person already exists — it may be stored with inverted direction. Check the list below and remove the incorrect entry before re-adding.')
+      } else {
+        alert('Add failed: ' + error.message)
+      }
+    }
     else {
       await loadPerson(selected)
       setShowAddRel(false)
