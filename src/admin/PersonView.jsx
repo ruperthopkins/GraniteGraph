@@ -801,6 +801,23 @@ export default function PersonView({ onBack }) {
                         </p>
                       </>
                     )}
+                    {link.stones?.volunteer_notes && (
+                      <>
+                        <p style={{ ...sectionLabel }}>Field notes</p>
+                        <p style={{ fontSize: 12, lineHeight: 1.6, margin: '0 0 8px', background: 'var(--color-background-secondary)', padding: '8px 10px', borderRadius: 'var(--border-radius-md)', color: 'var(--color-text-primary)', fontStyle: 'italic' }}>
+                          {link.stones.volunteer_notes}
+                        </p>
+                      </>
+                    )}
+                    {link.stones?.flags?.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 8 }}>
+                        {link.stones.flags.map(flag => (
+                          <span key={flag} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'var(--color-background-warning)', color: 'var(--color-text-warning)', border: '0.5px solid var(--color-border-warning)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            ⚑ {flag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                       {/* Role toggle */}
                       <button
@@ -817,11 +834,7 @@ export default function PersonView({ onBack }) {
                       {link.stones?.stone_condition && (
                         <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'var(--color-background-secondary)', color: 'var(--color-text-secondary)', border: '0.5px solid var(--color-border-tertiary)' }}>
                           {link.stones.stone_condition}
-                        </span>
-                      )}
-                      {link.stones?.flags?.length > 0 && (
-                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'var(--color-background-warning)', color: 'var(--color-text-warning)', border: '0.5px solid var(--color-border-warning)' }}>
-                          flagged
+                          {link.stones.condition_notes ? ` — ${link.stones.condition_notes}` : ''}
                         </span>
                       )}
                     </div>
@@ -830,7 +843,8 @@ export default function PersonView({ onBack }) {
 
                 {stoneLinks.length === 0 && (
                   <div style={{ background: 'var(--color-background-secondary)', borderRadius: 'var(--border-radius-md)', padding: '10px 12px' }}>
-                    <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: 0 }}>No stone cataloged yet</p>
+                    <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-warning)', margin: '0 0 4px' }}>Kin reference — no stone at this cemetery</p>
+                    <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: 0 }}>This person was named in a kinship relationship but has no cataloged stone here. They may be buried elsewhere.</p>
                   </div>
                 )}
               </div>

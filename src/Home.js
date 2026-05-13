@@ -605,46 +605,80 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       }
 
       // 5. Save confirmed kinship relationships
+      const saveKinshipPair = async (aId, bId, typeAtoB, hint, confidence = 'probable') => {
+        const typeBtoA = INVERSE_REL[typeAtoB] || 'unknown'
+        await Promise.all([
+          supabase.from('kinship').upsert(
+            { primary_deceased_id: aId, relative_deceased_id: bId, relationship_type: typeAtoB, source: 'stone_inscription', confidence, notes: hint },
+            { onConflict: 'primary_deceased_id,relative_deceased_id,relationship_type', ignoreDuplicates: true }
+          ),
+          supabase.from('kinship').upsert(
+            { primary_deceased_id: bId, relative_deceased_id: aId, relationship_type: typeBtoA, source: 'stone_inscription', confidence, notes: hint },
+            { onConflict: 'primary_deceased_id,relative_deceased_id,relationship_type', ignoreDuplicates: true }
+          ),
+        ])
+      }
+
+      // Helper: create a kin-reference stub for an unresolved name and return its deceased_id
+      const createKinStub = async (rawName, contextNote) => {
+        const parts = rawName.trim().split(/\s+/)
+        const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0]
+        const lastName  = parts.length > 1 ? parts[parts.length - 1] : null
+        const { data: stub, error } = await supabase.from('deceased').insert({
+          first_name: firstName,
+          last_name: lastName,
+          cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+          notes: contextNote,
+        }).select('deceased_id').single()
+        if (error) { console.warn('Kin stub insert failed:', error.message); return null }
+        return stub.deceased_id
+      }
+
       for (const person of stoneMatrix.people) {
         if (!person.matchedRecord) continue
+        const personId = person.matchedRecord.deceased_id
+        const personLabel = person.correctedName || person.matchedRecord.full_name || 'unknown'
+
         for (const rel of person.confirmedRelationships) {
-          const inverseType = INVERSE_REL[rel.type] || 'unknown'
           if (rel.objectDeceasedId) {
-            // External person found via database search
-            await Promise.all([
-              supabase.from('kinship').insert({
-                primary_deceased_id: person.matchedRecord.deceased_id,
-                relative_deceased_id: rel.objectDeceasedId,
-                relationship_type: rel.type, source: 'stone_inscription',
-                confidence: 'probable', notes: rel.hint
-              }),
-              supabase.from('kinship').insert({
-                primary_deceased_id: rel.objectDeceasedId,
-                relative_deceased_id: person.matchedRecord.deceased_id,
-                relationship_type: inverseType, source: 'stone_inscription',
-                confidence: 'probable', notes: rel.hint
-              })
-            ])
+            // Explicitly matched to a DB record
+            await saveKinshipPair(personId, rel.objectDeceasedId, rel.type, rel.hint)
           } else if (rel.objectIndex != null) {
-            // Person on same stone
+            // Person on same stone — both matched
             const objectPerson = stoneMatrix.people[rel.objectIndex]
             if (!objectPerson?.matchedRecord) continue
-            await Promise.all([
-              supabase.from('kinship').insert({
-                primary_deceased_id: person.matchedRecord.deceased_id,
-                relative_deceased_id: objectPerson.matchedRecord.deceased_id,
-                relationship_type: rel.type, source: 'stone_inscription',
-                confidence: 'probable', notes: rel.hint
-              }),
-              supabase.from('kinship').insert({
-                primary_deceased_id: objectPerson.matchedRecord.deceased_id,
-                relative_deceased_id: person.matchedRecord.deceased_id,
-                relationship_type: inverseType, source: 'stone_inscription',
-                confidence: 'probable', notes: rel.hint
-              })
-            ])
+            await saveKinshipPair(personId, objectPerson.matchedRecord.deceased_id, rel.type, rel.hint)
+          } else if (rel.objectName && rel.objectName !== 'Unknown') {
+            // Confirmed name-only — create a kin-reference stub
+            const stubId = await createKinStub(
+              rel.objectName,
+              `Kin reference: ${rel.type} of ${personLabel}. Named on stone inscription (field capture, stone ${stoneData.stone_id}).`
+            )
+            if (stubId) await saveKinshipPair(personId, stubId, rel.type, rel.hint, 'possible')
           }
-          // objectDeceasedId=null, objectIndex=null → name-only, no DB record to link
+        }
+
+        // Auto-save unconfirmed same-stone relationships by name matching
+        for (const rel of person.relationships) {
+          const rawName = (rel.relatedName || rel.rawNames?.[0] || '').trim().toLowerCase()
+          if (!rawName) continue
+          // Try to find this person on the stone
+          const sameStoneMatch = stoneMatrix.people.find((op, oi) =>
+            op !== person && op.matchedRecord &&
+            (op.correctedName || '').toLowerCase().split(/\s+/).some(w => w.length > 2 && rawName.includes(w))
+          )
+          if (sameStoneMatch) {
+            await saveKinshipPair(personId, sameStoneMatch.matchedRecord.deceased_id, rel.type, rel.hint)
+          } else {
+            // Unresolved name — create kin-reference stub for external person
+            const displayName = rel.relatedName || rel.rawNames?.[0] || ''
+            if (!displayName) continue
+            const stubId = await createKinStub(
+              displayName,
+              `Kin reference: ${rel.type} of ${personLabel}. Named on stone inscription (field capture, stone ${stoneData.stone_id}). Needs follow-up — not in local database at time of capture.`
+            )
+            if (stubId) await saveKinshipPair(personId, stubId, rel.type, rel.hint, 'possible')
+          }
         }
       }
 
