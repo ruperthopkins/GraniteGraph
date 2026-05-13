@@ -117,7 +117,9 @@ function App() {
     )
   }
 
-  const isAdmin = profile?.role === 'admin'
+  const isAdmin      = profile?.role === 'admin'
+  const isResearcher = profile?.role === 'researcher'
+  const canAccessTools = isAdmin || isResearcher
 
   return (
     <div>
@@ -128,12 +130,12 @@ function App() {
           profile={profile}
           onMap={() => setPage('map')}
           onRecent={() => setPage('recent')}
-          onAdmin={profile?.role === 'admin' ? () => setPage('admin') : null}
+          onAdmin={canAccessTools ? () => setPage('admin') : null}
         />
       )}
       {page === 'map' && <Map onBack={() => setPage('home')} />}
       {page === 'recent' && <Recent onBack={() => setPage('home')} />}
-      {page === 'admin' && isAdmin && (
+      {page === 'admin' && canAccessTools && (
         <AdminHome
           profile={profile}
           onBack={() => setPage('home')}
@@ -143,7 +145,7 @@ function App() {
       {page === 'admin_import' && isAdmin && (
         <ChurchImport onBack={() => setPage('admin')} />
       )}
-      {page === 'admin_review' && isAdmin && (
+      {page === 'admin_review' && canAccessTools && (
         <PersonView onBack={() => setPage('admin')} />
       )}
       {page === 'admin_mallmann' && isAdmin && (
