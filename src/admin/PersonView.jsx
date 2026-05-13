@@ -89,6 +89,12 @@ function TreeBox({ person, isFocal = false, childCount = 0, onClick }) {
       <p style={{ fontSize: 11, fontWeight: isFocal ? 600 : 500, margin: '0 0 2px', lineHeight: 1.3,
         color: isFocal ? 'var(--color-text-info)' : 'var(--color-text-primary)',
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</p>
+      {person.maiden_name && person.maiden_name !== person.last_name && (
+        <p style={{ fontSize: 9, color: 'var(--color-text-secondary)', margin: '0 0 2px', lineHeight: 1,
+          fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          née {person.maiden_name}
+        </p>
+      )}
       {(bYear || dYear) && (
         <p style={{ fontSize: 10, color: 'var(--color-text-secondary)', margin: '0 0 4px', lineHeight: 1 }}>
           {bYear && `b.${bYear}`}{bYear && dYear && ' '}{dYear && `d.${dYear}`}
@@ -139,6 +145,12 @@ export default function PersonView({ onBack }) {
   const [showCreateNew, setShowCreateNew] = useState(false)
   const [createNewForm, setCreateNewForm] = useState({ first_name: '', last_name: '', date_of_birth_verbatim: '', date_of_death_verbatim: '' })
   const [creatingNew, setCreatingNew] = useState(false)
+
+  // Co-parent panel (shown after adding a spouse when focal person has children)
+  const [coParentPanel, setCoParentPanel] = useState(null) // { spouse, children: kinship[] }
+  const [coParentSelections, setCoParentSelections] = useState(new Set())
+  const [coParentConfidence, setCoParentConfidence] = useState('probable')
+  const [savingCoParents, setSavingCoParents] = useState(false)
 
   // Family tree
   const [treeGrandparents, setTreeGrandparents] = useState({})     // parentId → [person, ...]
@@ -229,14 +241,15 @@ export default function PersonView({ onBack }) {
         .in('deceased_id', relativeIds)
       const relMap = {}
       ;(relatives || []).forEach(r => { relMap[r.deceased_id] = r })
-      setKinship(kin.map(k => ({ ...k, relative: relMap[k.relative_deceased_id] || null })))
+      setKinship(kin.filter(k => k.relative_deceased_id !== record.deceased_id).map(k => ({ ...k, relative: relMap[k.relative_deceased_id] || null })))
     } else {
       setKinship([])
     }
 
     // Tree: load grandparents + child descendant counts in parallel
-    const parentIds = (kin || []).filter(k => k.relationship_type === 'child').map(k => k.relative_deceased_id)
-    const childIds  = (kin || []).filter(k => k.relationship_type === 'parent').map(k => k.relative_deceased_id)
+    const validKin = (kin || []).filter(k => k.relative_deceased_id !== record.deceased_id)
+    const parentIds = validKin.filter(k => k.relationship_type === 'child').map(k => k.relative_deceased_id)
+    const childIds  = validKin.filter(k => k.relationship_type === 'parent').map(k => k.relative_deceased_id)
     const [gpRows, ccRows] = await Promise.all([
       parentIds.length > 0
         ? supabase.from('kinship').select('primary_deceased_id, relative_deceased_id')
@@ -287,7 +300,9 @@ export default function PersonView({ onBack }) {
       .eq('deceased_id', selected.deceased_id)
     if (error) { alert('Save failed: ' + error.message) }
     else {
-      setSelected(prev => ({ ...prev, ...editForm }))
+      const { data: refreshed } = await supabase.from('deceased').select('*').eq('deceased_id', selected.deceased_id).single()
+      setSelected(refreshed || { ...selected, ...editForm })
+      setEditForm(refreshed || { ...selected, ...editForm })
       setEditingPerson(false)
     }
     setSavingPerson(false)
@@ -448,13 +463,62 @@ export default function PersonView({ onBack }) {
       }
     }
     else {
+      const childrenBeforeReload = addRelForm.relationship_type === 'spouse'
+        ? kinship.filter(k => k.relationship_type === 'parent')
+        : []
       await loadPerson(selected)
       setShowAddRel(false)
       setAddRelTarget(null)
       setAddRelSearch('')
       setAddRelResults([])
+      if (childrenBeforeReload.length > 0) {
+        setCoParentPanel({ spouse: addRelTarget, children: childrenBeforeReload })
+        setCoParentSelections(new Set(childrenBeforeReload.map(r => r.relative_deceased_id)))
+        setCoParentConfidence('probable')
+      }
     }
     setSavingAddRel(false)
+  }
+
+  // ── Link co-parents ─────────────────────────────────────────────────────────
+  const saveCoParents = async () => {
+    if (!coParentPanel) return
+    setSavingCoParents(true)
+    const selectedChildren = coParentPanel.children.filter(r => coParentSelections.has(r.relative_deceased_id))
+    if (selectedChildren.length > 0) {
+      const note = `Co-parent linked via spouse of ${selected.first_name} ${selected.last_name}`
+      const rows = selectedChildren.flatMap(r => [
+        {
+          primary_deceased_id: coParentPanel.spouse.deceased_id,
+          relative_deceased_id: r.relative_deceased_id,
+          relationship_type: 'parent',
+          confidence: coParentConfidence,
+          notes: note,
+          source: 'admin',
+        },
+        {
+          primary_deceased_id: r.relative_deceased_id,
+          relative_deceased_id: coParentPanel.spouse.deceased_id,
+          relationship_type: 'child',
+          confidence: coParentConfidence,
+          notes: note,
+          source: 'admin',
+        },
+      ])
+      const { error } = await supabase.from('kinship').insert(rows)
+      if (error) {
+        if (error.code === '23505') {
+          alert('Some relationships already existed and were skipped. Check individual child records.')
+        } else {
+          alert('Error linking co-parents: ' + error.message)
+          setSavingCoParents(false)
+          return
+        }
+      }
+    }
+    setCoParentPanel(null)
+    setCoParentSelections(new Set())
+    setSavingCoParents(false)
   }
 
   // ── Duplicate finder ────────────────────────────────────────────────────────
@@ -520,11 +584,16 @@ export default function PersonView({ onBack }) {
   }
 
   // ── Derived ─────────────────────────────────────────────────────────────────
+  const birthYearOf = rel => {
+    const m = (rel.relative?.date_of_birth_verbatim || '').match(/\b(1[0-9]\d{2}|20\d{2})\b/)
+    return m ? parseInt(m[1]) : 9999
+  }
+  const sortByBirth = arr => [...arr].sort((a, b) => birthYearOf(a) - birthYearOf(b))
   const grouped = {
-    parent:  kinship.filter(k => k.relationship_type === 'parent'),
+    parent:  sortByBirth(kinship.filter(k => k.relationship_type === 'parent')),
     spouse:  kinship.filter(k => k.relationship_type === 'spouse'),
-    child:   kinship.filter(k => k.relationship_type === 'child'),
-    sibling: kinship.filter(k => k.relationship_type === 'sibling'),
+    child:   sortByBirth(kinship.filter(k => k.relationship_type === 'child')),
+    sibling: sortByBirth(kinship.filter(k => k.relationship_type === 'sibling')),
     unknown: kinship.filter(k => k.relationship_type === 'unknown'),
   }
 
@@ -811,6 +880,8 @@ export default function PersonView({ onBack }) {
                     <div>
                       <p style={{ fontWeight: 500, fontSize: 20, margin: 0 }}>
                         {[selected.first_name, selected.middle_name, selected.last_name].filter(Boolean).join(' ')}
+                        {selected.maiden_name && selected.maiden_name !== selected.last_name &&
+                          <span style={{ fontSize: 15, fontWeight: 400, color: 'var(--color-text-secondary)' }}> (née {selected.maiden_name})</span>}
                       </p>
                       <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>
                         {[selected.date_of_birth_verbatim && 'b. ' + fmtDate(selected.date_of_birth_verbatim, selected.date_of_birth_parsed),
@@ -1167,6 +1238,8 @@ export default function PersonView({ onBack }) {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                       <p style={{ fontWeight: 500, fontSize: 13, margin: 0 }}>
                                         {relative?.full_name || '(unmatched)'}
+                                        {relative?.maiden_name && relative.maiden_name !== relative.last_name &&
+                                          <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-text-secondary)' }}> (née {relative.maiden_name})</span>}
                                       </p>
                                       {isDuplicate && (
                                         <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 99, background: 'var(--color-background-warning)', color: 'var(--color-text-warning)', border: '0.5px solid var(--color-border-warning)' }}>
@@ -1203,6 +1276,95 @@ export default function PersonView({ onBack }) {
                   )
                 })}
               </div>
+
+              {/* Co-parent linking panel */}
+              {coParentPanel && (() => {
+                const spouseName = coParentPanel.spouse.full_name ||
+                  [coParentPanel.spouse.first_name, coParentPanel.spouse.last_name].filter(Boolean).join(' ')
+                const spouseBY = parseInt((coParentPanel.spouse.date_of_birth_verbatim || '').match(/\b(1[0-9]\d{2}|20\d{2})\b/)?.[1])
+                const spouseDY = parseInt((coParentPanel.spouse.date_of_death_verbatim || '').match(/\b(1[0-9]\d{2}|20\d{2})\b/)?.[1])
+                return (
+                  <div style={{ ...card, border: '0.5px solid var(--color-border-info)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <p style={sectionLabel}>Link co-parent relationships</p>
+                      <button onClick={() => setCoParentPanel(null)} style={{ fontSize: 12 }}>Skip</button>
+                    </div>
+                    <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: '0 0 12px' }}>
+                      Select which of <strong>{selected.first_name}</strong>'s children to also link as children of <strong>{spouseName}</strong>.
+                      Date indicators show plausibility — use your judgement.
+                    </p>
+                    <div style={{ marginBottom: 12 }}>
+                      <p style={fieldLabel}>confidence for all selected</p>
+                      <select value={coParentConfidence} onChange={e => setCoParentConfidence(e.target.value)}>
+                        {CONFIDENCE_LEVELS.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 14 }}>
+                      {coParentPanel.children.map(rel => {
+                        const child = rel.relative
+                        const childBY = parseInt((child?.date_of_birth_verbatim || '').match(/\b(1[0-9]\d{2}|20\d{2})\b/)?.[1])
+                        let plausibility = 'unknown'
+                        if (childBY && spouseBY) {
+                          const gap = childBY - spouseBY
+                          if (gap < 0) plausibility = 'impossible'        // child older than potential parent
+                          else if (gap < 13) plausibility = 'warn'        // parent younger than 13
+                          else plausibility = 'ok'
+                        }
+                        if (plausibility === 'ok' && childBY && spouseDY && childBY > spouseDY + 1) {
+                          plausibility = 'impossible'                      // born >1yr after parent died
+                        }
+                        const icon = { impossible: '✗', warn: '⚠', ok: '✓', unknown: '?' }[plausibility]
+                        const iconColor = {
+                          impossible: 'var(--color-text-danger)',
+                          warn: 'var(--color-text-warning)',
+                          ok: 'var(--color-text-success)',
+                          unknown: 'var(--color-text-tertiary)',
+                        }[plausibility]
+                        const hint = {
+                          impossible: childBY && spouseDY && childBY > spouseDY + 1
+                            ? `born ${childBY}, ${spouseName.split(' ')[0]} died ${spouseDY}`
+                            : `child b.${childBY} older than ${spouseName.split(' ')[0]} b.${spouseBY}`,
+                          warn: `${spouseName.split(' ')[0]} only ${childBY - spouseBY} yrs old`,
+                          ok: '',
+                          unknown: 'insufficient dates',
+                        }[plausibility]
+                        const isChecked = coParentSelections.has(rel.relative_deceased_id)
+                        return (
+                          <label key={rel.kinship_id} style={{
+                            display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
+                            borderRadius: 'var(--border-radius-md)', cursor: 'pointer',
+                            border: `0.5px solid ${plausibility === 'impossible' ? 'var(--color-border-danger)' : 'var(--color-border-tertiary)'}`,
+                            background: plausibility === 'impossible' ? 'var(--color-background-danger)' : 'var(--color-background-secondary)',
+                            opacity: plausibility === 'impossible' ? 0.7 : 1,
+                          }}>
+                            <input type="checkbox" checked={isChecked}
+                              onChange={e => setCoParentSelections(prev => {
+                                const next = new Set(prev)
+                                if (e.target.checked) next.add(rel.relative_deceased_id)
+                                else next.delete(rel.relative_deceased_id)
+                                return next
+                              })} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{child?.full_name || '(unnamed)'}</p>
+                              <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: 0 }}>
+                                {childBY ? `b. ${childBY}` : 'birth year unknown'}
+                              </p>
+                            </div>
+                            <span title={hint} style={{ fontSize: 13, color: iconColor, flexShrink: 0 }}>{icon}</span>
+                            {hint && <span style={{ fontSize: 10, color: iconColor, maxWidth: 120, lineHeight: 1.2 }}>{hint}</span>}
+                          </label>
+                        )
+                      })}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <button onClick={saveCoParents} disabled={savingCoParents || coParentSelections.size === 0}>
+                        {savingCoParents ? 'Linking…' : `Link ${coParentSelections.size} child${coParentSelections.size !== 1 ? 'ren' : ''} to ${spouseName.split(' ')[0]}`}
+                      </button>
+                      <button onClick={() => setCoParentPanel(null)}>Skip — link manually</button>
+                    </div>
+                  </div>
+                )
+              })()}
 
               {/* Potential duplicates */}
               {!editingPerson && (
