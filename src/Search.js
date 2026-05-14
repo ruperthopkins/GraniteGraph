@@ -72,7 +72,8 @@ export default function Search({ onLogin, onHome }) {
       firstTerms.forEach(function(term) {
         dbQuery = dbQuery.or(
           'first_name.ilike.%' + term + '%,' +
-          'middle_name.ilike.%' + term + '%'
+          'middle_name.ilike.%' + term + '%,' +
+          'maiden_name.ilike.%' + term + '%'
         )
       })
     }

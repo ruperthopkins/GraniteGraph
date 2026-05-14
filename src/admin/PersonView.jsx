@@ -178,7 +178,7 @@ export default function PersonView({ onBack }) {
       const last = terms[terms.length - 1]
       q = q.ilike('last_name', `%${last}%`)
       terms.slice(0, -1).forEach(t => {
-        q = q.or(`first_name.ilike.%${t}%,middle_name.ilike.%${t}%`)
+        q = q.or(`first_name.ilike.%${t}%,middle_name.ilike.%${t}%,maiden_name.ilike.%${t}%`)
       })
     }
     const { data } = await q.order('last_name').order('first_name').limit(50)
@@ -345,7 +345,7 @@ export default function PersonView({ onBack }) {
       const lastName = terms[terms.length - 1]
       const firstTerms = terms.slice(0, -1)
       q = q.ilike('last_name', `%${lastName}%`)
-      firstTerms.forEach(term => { q = q.or(`first_name.ilike.%${term}%,middle_name.ilike.%${term}%`) })
+      firstTerms.forEach(term => { q = q.or(`first_name.ilike.%${term}%,middle_name.ilike.%${term}%,maiden_name.ilike.%${term}%`) })
     }
     const { data } = await q.order('last_name').order('first_name').limit(20)
     setAddRelResults(data || [])
