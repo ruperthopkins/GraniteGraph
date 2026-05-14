@@ -155,6 +155,8 @@ export default function PersonView({ onBack }) {
   // Family tree
   const [treeGrandparents, setTreeGrandparents] = useState({})     // parentId → [person, ...]
   const [childDescendantCounts, setChildDescendantCounts] = useState({}) // childId → count
+  const [spouseChildIds, setSpouseChildIds] = useState({})          // spouseId → Set<childId>
+  const [derivedSiblings, setDerivedSiblings] = useState([])
 
   // Duplicate finder / merge
   const [dupCandidates, setDupCandidates]         = useState([])
@@ -202,6 +204,8 @@ export default function PersonView({ onBack }) {
     setMergeLog(null)
     setTreeGrandparents({})
     setChildDescendantCounts({})
+    setSpouseChildIds({})
+    setDerivedSiblings([])
 
     // Full deceased record
     const { data: person, error: personError } = await supabase
@@ -246,11 +250,12 @@ export default function PersonView({ onBack }) {
       setKinship([])
     }
 
-    // Tree: load grandparents + child descendant counts in parallel
+    // Tree: load grandparents, child descendant counts, spouse→children map, and siblings in parallel
     const validKin = (kin || []).filter(k => k.relative_deceased_id !== record.deceased_id)
     const parentIds = validKin.filter(k => k.relationship_type === 'child').map(k => k.relative_deceased_id)
     const childIds  = validKin.filter(k => k.relationship_type === 'parent').map(k => k.relative_deceased_id)
-    const [gpRows, ccRows] = await Promise.all([
+    const spouseIds = validKin.filter(k => k.relationship_type === 'spouse').map(k => k.relative_deceased_id)
+    const [gpRows, ccRows, scRows, sibRows] = await Promise.all([
       parentIds.length > 0
         ? supabase.from('kinship').select('primary_deceased_id, relative_deceased_id')
             .in('primary_deceased_id', parentIds).eq('relationship_type', 'child')
@@ -258,6 +263,15 @@ export default function PersonView({ onBack }) {
       childIds.length > 0
         ? supabase.from('kinship').select('primary_deceased_id')
             .in('primary_deceased_id', childIds).eq('relationship_type', 'parent')
+        : { data: [] },
+      spouseIds.length > 0
+        ? supabase.from('kinship').select('primary_deceased_id, relative_deceased_id')
+            .in('primary_deceased_id', spouseIds).eq('relationship_type', 'parent')
+        : { data: [] },
+      parentIds.length > 0
+        ? supabase.from('kinship').select('relative_deceased_id')
+            .in('primary_deceased_id', parentIds).eq('relationship_type', 'parent')
+            .neq('relative_deceased_id', record.deceased_id)
         : { data: [] },
     ])
     const gpMap = {}
@@ -278,6 +292,19 @@ export default function PersonView({ onBack }) {
       childCountMap[k.primary_deceased_id] = (childCountMap[k.primary_deceased_id] || 0) + 1
     })
     setChildDescendantCounts(childCountMap)
+    const scMap = {}
+    ;(scRows.data || []).forEach(k => {
+      if (!scMap[k.primary_deceased_id]) scMap[k.primary_deceased_id] = new Set()
+      scMap[k.primary_deceased_id].add(k.relative_deceased_id)
+    })
+    setSpouseChildIds(scMap)
+    const sibIds = [...new Set((sibRows.data || []).map(k => k.relative_deceased_id))]
+    if (sibIds.length > 0) {
+      const { data: sibRecs } = await supabase.from('v_deceased_search').select('*').in('deceased_id', sibIds)
+      setDerivedSiblings(sibRecs || [])
+    } else {
+      setDerivedSiblings([])
+    }
 
     setLoading(false)
   }, [])
@@ -1037,16 +1064,78 @@ export default function PersonView({ onBack }) {
                       </>))}
                     </div>
 
-                    {/* Children */}
-                    {kinship.filter(k => k.relationship_type === 'parent').length > 0 && (<>
-                      <div style={{ display: 'flex', justifyContent: 'center', height: 14 }}>
-                        <div style={{ width: 1, background: 'var(--color-border-tertiary)' }} />
+                    {/* Children — grouped by spouse if spouse→child data available */}
+                    {kinship.filter(k => k.relationship_type === 'parent').length > 0 && (() => {
+                      const children = kinship.filter(k => k.relationship_type === 'parent')
+                      const spouses = kinship.filter(k => k.relationship_type === 'spouse')
+                      const hasGrouping = spouses.some(s => spouseChildIds[s.relative_deceased_id]?.size > 0)
+                      // Build groups: one per spouse (with children), then unattributed
+                      const attributed = new Set()
+                      const groups = spouses
+                        .map(s => {
+                          const ids = spouseChildIds[s.relative_deceased_id] || new Set()
+                          const sortedKids = [...children].sort((a, b) => (a.relative?.date_of_birth_parsed || '').localeCompare(b.relative?.date_of_birth_parsed || ''))
+                          const kids = sortedKids.filter(c => ids.has(c.relative_deceased_id))
+                          kids.forEach(c => attributed.add(c.relative_deceased_id))
+                          return { spouse: s.relative, kids }
+                        })
+                        .filter(g => g.kids.length > 0)
+                      const unattributed = children.filter(c => !attributed.has(c.relative_deceased_id))
+                      return (<>
+                        <div style={{ display: 'flex', justifyContent: 'center', height: 14 }}>
+                          <div style={{ width: 1, background: 'var(--color-border-tertiary)' }} />
+                        </div>
+                        {hasGrouping ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
+                            {groups.map(g => (
+                              <div key={g.spouse?.deceased_id || 'unattr'}>
+                                {g.spouse && <p style={{ fontSize: 10, color: 'var(--color-text-tertiary)', textAlign: 'center', margin: '0 0 4px' }}>
+                                  with {g.spouse.first_name} {g.spouse.maiden_name ? `(née ${g.spouse.maiden_name})` : g.spouse.last_name}
+                                </p>}
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+                                  {g.kids.map(rel => (
+                                    <TreeBox key={rel.relative_deceased_id} person={rel.relative}
+                                      childCount={childDescendantCounts[rel.relative_deceased_id] || 0}
+                                      onClick={() => rel.relative && loadPerson(rel.relative)} />
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                            {unattributed.length > 0 && (
+                              <div>
+                                <p style={{ fontSize: 10, color: 'var(--color-text-tertiary)', textAlign: 'center', margin: '0 0 4px' }}>mother unknown</p>
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+                                  {unattributed.map(rel => (
+                                    <TreeBox key={rel.relative_deceased_id} person={rel.relative}
+                                      childCount={childDescendantCounts[rel.relative_deceased_id] || 0}
+                                      onClick={() => rel.relative && loadPerson(rel.relative)} />
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+                            {children.map(rel => (
+                              <TreeBox key={rel.relative_deceased_id} person={rel.relative}
+                                childCount={childDescendantCounts[rel.relative_deceased_id] || 0}
+                                onClick={() => rel.relative && loadPerson(rel.relative)} />
+                            ))}
+                          </div>
+                        )}
+                      </>)
+                    })()}
+
+                    {/* Siblings — derived from shared parents */}
+                    {derivedSiblings.length > 0 && (<>
+                      <div style={{ marginTop: 10, marginBottom: 4, textAlign: 'center' }}>
+                        <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>siblings ({derivedSiblings.length})</span>
                       </div>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
-                        {kinship.filter(k => k.relationship_type === 'parent').map(rel => (
-                          <TreeBox key={rel.relative_deceased_id} person={rel.relative}
-                            childCount={childDescendantCounts[rel.relative_deceased_id] || 0}
-                            onClick={() => rel.relative && loadPerson(rel.relative)} />
+                        {[...derivedSiblings].sort((a, b) => (a.date_of_birth_parsed || '').localeCompare(b.date_of_birth_parsed || '')).map(sib => (
+                          <TreeBox key={sib.deceased_id} person={sib}
+                            childCount={childDescendantCounts[sib.deceased_id] || 0}
+                            onClick={() => loadPerson(sib)} />
                         ))}
                       </div>
                     </>)}
