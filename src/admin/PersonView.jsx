@@ -352,12 +352,19 @@ export default function PersonView({ onBack }) {
 
   // ── Remove relationship ─────────────────────────────────────────────────────
   const removeRel = async (kinshipId) => {
-    const { error } = await supabase
-      .from('kinship')
-      .delete()
-      .eq('kinship_id', kinshipId)
-    if (error) { alert('Remove failed: ' + error.message) }
-    else { setKinship(prev => prev.filter(k => k.kinship_id !== kinshipId)) }
+    const inverseMap = { spouse: 'spouse', parent: 'child', child: 'parent', sibling: 'sibling', unknown: 'unknown' }
+    const row = kinship.find(k => k.kinship_id === kinshipId)
+    const { error } = await supabase.from('kinship').delete().eq('kinship_id', kinshipId)
+    if (error) { alert('Remove failed: ' + error.message); setRemovingRelId(null); return }
+    // Delete the inverse row to avoid orphaning one direction of the bidirectional pair
+    if (row) {
+      const inverseType = inverseMap[row.relationship_type] || row.relationship_type
+      await supabase.from('kinship').delete()
+        .eq('primary_deceased_id', row.relative_deceased_id)
+        .eq('relative_deceased_id', row.primary_deceased_id)
+        .eq('relationship_type', inverseType)
+    }
+    setKinship(prev => prev.filter(k => k.kinship_id !== kinshipId))
     setRemovingRelId(null)
   }
 
@@ -436,9 +443,10 @@ export default function PersonView({ onBack }) {
       if (!window.confirm('Switching to "Mentioned" requires a relationship to be recorded. Continue and add a relationship after?')) return
     }
     setTogglingRole(stoneId)
+    const { data: { session } } = await supabase.auth.getSession()
     const resp = await fetch('/api/toggle-role', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
       body: JSON.stringify({ stone_id: stoneId, deceased_id: selected.deceased_id, role: newRole }),
     })
     if (!resp.ok) {

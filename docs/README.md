@@ -19,5 +19,8 @@ Mount Sinai, Long Island · Est. 1778 · granite-graph.com
 ### Architecture
 - [decisions.md](architecture/decisions.md) — Key design decisions and the reasoning behind them
 
+### Maintenance
+- [code-review-2026-05-21.md](maintenance/code-review-2026-05-21.md) — Milestone code review findings and prioritised fix list
+
 ---
 *Last updated: 2026-05-21*

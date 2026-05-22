@@ -71,6 +71,25 @@ const INVERSE_REL = {
   sibling: 'sibling',
 }
 
+// ── HEADER ───────────────────────────────────────────────────
+function Header({ onMap, onRecent, onAdmin, onHome }) {
+  return (
+    <div className="bg-gray-800 p-4 flex items-center justify-between">
+      <h1 className="text-xl font-bold text-green-400 cursor-pointer" onClick={onHome}>
+        Granite Graph
+      </h1>
+      <div className="flex gap-3">
+        <button onClick={onMap} className="text-gray-300 text-sm hover:text-white">Map</button>
+        <button onClick={onRecent} className="text-gray-300 text-sm hover:text-white">Recent</button>
+        {onAdmin && (
+          <button onClick={onAdmin} className="text-yellow-400 text-sm hover:text-yellow-300">Admin</button>
+        )}
+        <button onClick={() => supabase.auth.signOut()} className="text-gray-300 text-sm hover:text-white">Sign Out</button>
+      </div>
+    </div>
+  )
+}
+
 // ── MAIN COMPONENT ───────────────────────────────────────────
 export default function Home({ session, onMap, onRecent, onAdmin }) {
   // Core mode
@@ -248,9 +267,9 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     if (deathYearMatch) {
       const year = parseInt(deathYearMatch[0])
       if (year >= 1700 && year <= 2030) {
-        dbQuery = dbQuery
-          .gte('date_of_death', (year - 15) + '-01-01')
-          .lte('date_of_death', (year + 15) + '-12-31')
+        dbQuery = dbQuery.or(
+          `date_of_death.is.null,and(date_of_death.gte.${year - 15}-01-01,date_of_death.lte.${year + 15}-12-31)`
+        )
       }
     }
     const { data } = await dbQuery.order('last_name').order('first_name').limit(20)
@@ -440,7 +459,9 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       if (deathYearMatch) {
         const year = parseInt(deathYearMatch[0])
         if (year >= 1700 && year <= 2030) {
-          dbQuery = dbQuery.gte('date_of_death', (year - 15) + '-01-01').lte('date_of_death', (year + 15) + '-12-31')
+          dbQuery = dbQuery.or(
+            `date_of_death.is.null,and(date_of_death.gte.${year - 15}-01-01,date_of_death.lte.${year + 15}-12-31)`
+          )
         }
       }
       return dbQuery.order('last_name').order('first_name').limit(20)
@@ -768,27 +789,11 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       : 'https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng + '&travelmode=walking', '_blank')
   }
 
-  // ── HEADER ───────────────────────────────────────────────
-  const Header = () => (
-    <div className="bg-gray-800 p-4 flex items-center justify-between">
-      <h1 className="text-xl font-bold text-green-400 cursor-pointer" onClick={() => { clearAndReset(); setMode('landing') }}>
-        Granite Graph
-      </h1>
-      <div className="flex gap-3">
-        <button onClick={onMap} className="text-gray-300 text-sm hover:text-white">Map</button>
-        <button onClick={onRecent} className="text-gray-300 text-sm hover:text-white">Recent</button>
-        {onAdmin && (
-          <button onClick={onAdmin} className="text-yellow-400 text-sm hover:text-yellow-300">Admin</button>
-        )}
-        <button onClick={() => supabase.auth.signOut()} className="text-gray-300 text-sm hover:text-white">Sign Out</button>
-      </div>
-    </div>
-  )
   // ── LANDING ──────────────────────────────────────────────
   if (mode === 'landing') {
     return (
       <div className="min-h-screen bg-gray-900 text-white">
-        <Header />
+        <Header onMap={onMap} onRecent={onRecent} onAdmin={onAdmin} onHome={() => { clearAndReset(); setMode('landing') }} />
         <div className="p-6 max-w-lg mx-auto">
           <p className="text-gray-300 text-center mb-8 mt-4">What would you like to do?</p>
           <input type="file" accept="image/*" capture="environment" ref={fileInput}
@@ -810,7 +815,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
   if (mode === 'search') {
     return (
       <div className="min-h-screen bg-gray-900 text-white">
-        <Header />
+        <Header onMap={onMap} onRecent={onRecent} onAdmin={onAdmin} onHome={() => { clearAndReset(); setMode('landing') }} />
         <div className="p-4 max-w-lg mx-auto">
           <button onClick={() => { setMode('landing'); setSearchResults(null); setSearchSelected(null); setSearchQuery('') }}
             className="text-gray-300 text-sm hover:text-white mb-4">← Back</button>
