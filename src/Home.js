@@ -259,7 +259,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       const firstTerms = terms.slice(0, -1)
       dbQuery = dbQuery.ilike('last_name', '%' + lastName + '%')
       firstTerms.forEach(term => {
-        dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%')
+        dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%,maiden_name.ilike.%' + term + '%')
       })
     }
     const person = stoneMatrix?.people?.[index]
@@ -340,7 +340,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       const lastName = terms[terms.length - 1]
       const firstTerms = terms.slice(0, -1)
       dbQuery = dbQuery.ilike('last_name', `%${lastName}%`)
-      firstTerms.forEach(term => { dbQuery = dbQuery.or(`first_name.ilike.%${term}%,middle_name.ilike.%${term}%`) })
+      firstTerms.forEach(term => { dbQuery = dbQuery.or(`first_name.ilike.%${term}%,middle_name.ilike.%${term}%,maiden_name.ilike.%${term}%`) })
     }
     const { data } = await dbQuery.limit(5)
     setStoneMatrix(prev => ({
@@ -450,7 +450,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
         const firstTerms = terms.slice(0, -1)
         dbQuery = dbQuery.ilike('last_name', '%' + lastName + '%')
         firstTerms.forEach(term => {
-          dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%')
+          dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%,maiden_name.ilike.%' + term + '%')
         })
       }
       // Apply year window if we have a death year
@@ -520,8 +520,8 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       (pos) => {
         bestPosition = pos
         const acc = Math.round(pos.coords.accuracy)
-        setGpsStatus('GPS: ' + acc + 'm accuracy' + (acc <= 20 ? ' ✓' : ' (improving...)'))
-        if (pos.coords.accuracy <= 20) {
+        setGpsStatus('GPS: ' + acc + 'm accuracy' + (acc <= 3 ? ' ✓' : ' (improving...)'))
+        if (pos.coords.accuracy <= 3) {
           navigator.geolocation.clearWatch(watchId)
           setGpsStatus(null)
           resolved = true
@@ -529,9 +529,9 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
         }
       },
       (err) => { if (bestPosition) { setGpsStatus(null); resolved = true; resolve(bestPosition) } else { reject(err) } },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
     )
-    // Take best available fix after 10s rather than making volunteer stand still
+    // Take best available fix after 30s rather than making volunteer stand still indefinitely
     setTimeout(() => {
       if (resolved) return
       navigator.geolocation.clearWatch(watchId)
@@ -539,7 +539,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       if (bestPosition) {
         resolve(bestPosition)
       } else { reject(new Error('Could not get GPS position')) }
-    }, 10000)
+    }, 30000)
   })
 
   // ── SAVE EVERYTHING ──────────────────────────────────────
@@ -752,7 +752,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       const lastName = terms[terms.length - 1]
       const firstTerms = terms.slice(0, -1)
       dbQuery = dbQuery.ilike('last_name', '%' + lastName + '%')
-      firstTerms.forEach(term => { dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%') })
+      firstTerms.forEach(term => { dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%,maiden_name.ilike.%' + term + '%') })
     }
     const { data, error } = await dbQuery.order('last_name').order('first_name').limit(50)
     if (error) { alert('Search error: ' + error.message) } else { setSearchResults(data || []) }
