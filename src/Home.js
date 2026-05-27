@@ -386,7 +386,6 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     })
   }
 
-  // ── FIX #1: Strip punctuation/initials for cleaner search seeds ──────────
   const cleanNameForSearch = (name) => {
     return name
       .replace(/\b[A-Z]\.\s*/g, '')      // remove middle initials like "H. "
@@ -404,8 +403,6 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     if (stoneMatrix?.people?.length > 0) {
       const firstPerson = stoneMatrix.people[0]
 
-      // FIX #3: if volunteer came from Search Records with a pending match,
-      // pre-match person 0 immediately so they never have to search again
       if (pendingPhotoFor && firstPerson.matchStatus === 'pending') {
         // Compute everything from current snapshot before any setState calls
         const nextIndex = stoneMatrix.people.length > 1 ? 1 : 0
@@ -500,7 +497,6 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     if (nextIndex < stoneMatrix.people.length) {
       setMatchingIndex(nextIndex)
       const next = stoneMatrix.people[nextIndex]
-      // FIX #1: clean name before using as search seed
       const cleaned = cleanNameForSearch(next.correctedName)
       setMatchSearchQuery(cleaned)
       setMatchSearchResults(next.preSearchResults || [])
@@ -520,8 +516,8 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       (pos) => {
         bestPosition = pos
         const acc = Math.round(pos.coords.accuracy)
-        setGpsStatus('GPS: ' + acc + 'm accuracy' + (acc <= 3 ? ' ✓' : ' (improving...)'))
-        if (pos.coords.accuracy <= 3) {
+        setGpsStatus('GPS: ' + acc + 'm accuracy' + (acc <= 10 ? ' ✓' : ' (improving...)'))
+        if (pos.coords.accuracy <= 10) {
           navigator.geolocation.clearWatch(watchId)
           setGpsStatus(null)
           resolved = true
@@ -1008,7 +1004,6 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                 {/* Person header */}
                 <p className="text-green-400 text-xs font-bold mb-2">Person {pIndex + 1}</p>
 
-                {/* Corrected name — FIX #5: high contrast for outdoor use */}
                 <input
                   type="text"
                   value={person.correctedName}
@@ -1024,7 +1019,6 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                   </p>
                 )}
 
-                {/* Dates — FIX #4: editable fields instead of static text */}
                 <div className="flex gap-2 mb-2">
                   <div className="flex-1">
                     <p className="text-gray-200 text-xs mb-1 font-medium">Born</p>
@@ -1268,7 +1262,6 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                     {person.role === 'occupant' ? '⬛ Occupant' : '📝 Mentioned'}
                   </p>
                   <p className="text-white font-bold text-lg">{person.correctedName}</p>
-                  {/* FIX #4: show current (possibly edited) date values */}
                   {person.geminiData.date_of_birth_verbatim && (
                     <p className="text-gray-300 text-sm">b. {person.geminiData.date_of_birth_verbatim}</p>
                   )}
@@ -1291,7 +1284,6 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
 
                   {person.matchStatus !== 'matched' && (
                     <>
-                      {/* FIX #5: high contrast search input for outdoor use */}
                       <div className="flex gap-2 mt-3 mb-3">
                         <input
                           type="text"
@@ -1307,7 +1299,6 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                         </button>
                       </div>
 
-                      {/* FIX #2: show searching indicator clearly while in progress */}
                       {matchSearching && (
                         <div className="bg-gray-700 rounded p-3 mb-3 text-center">
                           <p className="text-green-400 text-sm">Searching...</p>
@@ -1333,7 +1324,6 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                         </div>
                       ))}
 
-                      {/* FIX #2: no results message only after search fully completes */}
                       {!matchSearching && matchSearchAttempted && matchSearchResults.length === 0 && (
                         <p className="text-gray-200 text-sm text-center py-2">No matches found — try a shorter name or last name only</p>
                       )}
@@ -1350,7 +1340,6 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       {saving ? '⏳ Saving...' : matchingIndex + 1 < stoneMatrix.people.length ? 'Next Person →' : '💾 Save Stone'}
     </button>
   ) : matchSearching ? (
-    // FIX #2: never show skip/save while a search is in flight
     <p className="text-green-400 text-sm py-3">⏳ Searching...</p>
   ) : matchSearchAttempted ? (
     <>

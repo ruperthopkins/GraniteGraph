@@ -4,10 +4,10 @@
 import { useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { normaliseName, matchScore } from '../utils/nameNorm'
+import { CEMETERY_ID, SOURCE_IDS } from '../constants'
 
-const SOURCE_ID_CHURCH = '800c5884-d180-42b0-9ca6-4e05c8fd64cb'
-const SOURCE_ID_GENEALOGY = '9cb5c6d4-83b2-4ec6-ae59-72d2d7eb1155'
-const CEMETERY_ID = 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107'
+const SOURCE_ID_CHURCH    = SOURCE_IDS.CHURCH
+const SOURCE_ID_GENEALOGY = SOURCE_IDS.MALLMANN
 
 // ── HELPERS (outside component is fine — no state needed) ────────────────────
 const esc = (s) => (s || '').replace(/'/g, "''")

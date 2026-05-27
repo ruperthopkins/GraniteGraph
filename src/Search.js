@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from './supabaseClient'
-import { matchScore, parseDate } from './utils/nameNorm'
+import { matchScore, fmtDate } from './utils/nameNorm'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
@@ -12,15 +12,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
-const MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-function fmtDate(verbatim, parsed) {
-  const p = parsed || parseDate(verbatim)
-  if (!p) return verbatim || null
-  const parts = p.split('-')
-  if (parts.length === 3) return `${parseInt(parts[2])} ${MONTH_ABBR[parseInt(parts[1])]} ${parts[0]}`
-  if (parts.length === 2) return `${MONTH_ABBR[parseInt(parts[1])]} ${parts[0]}`
-  return parts[0]
-}
 
 const stoneIcon = new L.Icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
@@ -63,7 +54,7 @@ export default function Search({ onLogin, onHome }) {
     if (terms.length === 1) {
   const t = terms[0]
   dbQuery = dbQuery.or(
-    `first_name.ilike.*${t}*,last_name.ilike.*${t}*,maiden_name.ilike.*${t}*`
+    `first_name.ilike.%${t}%,last_name.ilike.%${t}%,maiden_name.ilike.%${t}%`
   )
 } else {
       const lastName = terms[terms.length - 1]

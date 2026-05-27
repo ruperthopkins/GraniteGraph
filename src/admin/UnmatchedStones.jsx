@@ -5,9 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
-
-const REL_LABEL   = { spouse: 'spouse', child: 'child', parent: 'parent', sibling: 'sibling' }
-const INVERSE_REL = { spouse: 'spouse', child: 'parent', parent: 'child', sibling: 'sibling' }
+import { CEMETERY_ID, REL_LABEL, INVERSE_REL } from '../constants'
 
 function personName(d) {
   return [d.title, d.first_name, d.middle_name, d.last_name].filter(Boolean).join(' ') || '(unnamed)'
@@ -90,7 +88,7 @@ export default function UnmatchedStones({ onBack }) {
       } else {
         q = q.ilike('last_name', `%${terms[terms.length - 1]}%`)
         terms.slice(0, -1).forEach(t =>
-          q = q.or(`first_name.ilike.%${t}%,middle_name.ilike.%${t}%`)
+          q = q.or(`first_name.ilike.%${t}%,middle_name.ilike.%${t}%,maiden_name.ilike.%${t}%`)
         )
       }
       return q.order('last_name').order('first_name').limit(20)
@@ -150,7 +148,7 @@ export default function UnmatchedStones({ onBack }) {
         date_of_birth_verbatim: newRecord.born        || null,
         date_of_death_verbatim: newRecord.died        || null,
         gender:                newRecord.gender       || null,
-        cemetery_id:           'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+        cemetery_id:           CEMETERY_ID,
       })
       .select('deceased_id, first_name, middle_name, last_name, title')
       .single()

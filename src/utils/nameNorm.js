@@ -253,3 +253,14 @@ export function matchScoreDetails(a, b) {
 export function matchScore(a, b) {
   return matchScoreDetails(a, b).score
 }
+
+export const MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+export function fmtDate(verbatim, parsed) {
+  const p = parsed || parseDate(verbatim)
+  if (!p) return verbatim || null
+  const parts = p.split('-')
+  if (parts.length === 3) return `${parseInt(parts[2])} ${MONTH_ABBR[parseInt(parts[1])]} ${parts[0]}`
+  if (parts.length === 2) return `${MONTH_ABBR[parseInt(parts[1])]} ${parts[0]}`
+  return parts[0]
+}

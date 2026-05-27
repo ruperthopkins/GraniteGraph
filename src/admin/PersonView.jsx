@@ -4,24 +4,13 @@
 
 import { useState, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
-import { normaliseName, matchScoreDetails, parseDate } from '../utils/nameNorm'
+import { normaliseName, matchScoreDetails, fmtDate } from '../utils/nameNorm'
 import { mergePersons } from '../utils/mergePersons'
+import { REL_LABEL, INVERSE_REL } from '../constants'
 
 const CONFIDENCE_LEVELS = ['confirmed', 'probable', 'possible', 'uncertain']
 const SOURCE_TYPES = ['stone_inscription', 'document', 'church_record', 'census', 'colonial_document', 'family_record', 'ai_extracted', 'volunteer', 'admin']
-// Human-readable labels — kept in sync with field tool REL_LABEL
-const REL_LABEL = { spouse: 'Spouse of', parent: 'Parent of', child: 'Child of', sibling: 'Sibling of', unknown: 'Related to' }
 const SOURCE_LABEL = { stone_inscription: 'Stone inscription', document: 'Document', church_record: 'Church record', census: 'Census', colonial_document: 'Colonial document', family_record: 'Family record', ai_extracted: 'AI extracted', volunteer: 'Volunteer', admin: 'Admin' }
-
-const MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-function fmtDate(verbatim, parsed) {
-  const p = parsed || parseDate(verbatim)
-  if (!p) return verbatim || null
-  const parts = p.split('-')
-  if (parts.length === 3) return `${parseInt(parts[2])} ${MONTH_ABBR[parseInt(parts[1])]} ${parts[0]}`
-  if (parts.length === 2) return `${MONTH_ABBR[parseInt(parts[1])]} ${parts[0]}`
-  return parts[0]
-}
 
 // ── Initials avatar ───────────────────────────────────────────────────────────
 function Avatar({ name, size = 40, color = 'info' }) {
@@ -352,13 +341,12 @@ export default function PersonView({ onBack }) {
 
   // ── Remove relationship ─────────────────────────────────────────────────────
   const removeRel = async (kinshipId) => {
-    const inverseMap = { spouse: 'spouse', parent: 'child', child: 'parent', sibling: 'sibling', unknown: 'unknown' }
     const row = kinship.find(k => k.kinship_id === kinshipId)
     const { error } = await supabase.from('kinship').delete().eq('kinship_id', kinshipId)
     if (error) { alert('Remove failed: ' + error.message); setRemovingRelId(null); return }
     // Delete the inverse row to avoid orphaning one direction of the bidirectional pair
     if (row) {
-      const inverseType = inverseMap[row.relationship_type] || row.relationship_type
+      const inverseType = INVERSE_REL[row.relationship_type] || row.relationship_type
       await supabase.from('kinship').delete()
         .eq('primary_deceased_id', row.relative_deceased_id)
         .eq('relative_deceased_id', row.primary_deceased_id)
@@ -470,7 +458,6 @@ export default function PersonView({ onBack }) {
   const addRel = async () => {
     if (!addRelTarget) return
     setSavingAddRel(true)
-    const inverseMap = { spouse: 'spouse', parent: 'child', child: 'parent', sibling: 'sibling', unknown: 'unknown' }
     const rows = [
       {
         primary_deceased_id: selected.deceased_id,
@@ -483,7 +470,7 @@ export default function PersonView({ onBack }) {
       {
         primary_deceased_id: addRelTarget.deceased_id,
         relative_deceased_id: selected.deceased_id,
-        relationship_type: inverseMap[addRelForm.relationship_type] || 'unknown',
+        relationship_type: INVERSE_REL[addRelForm.relationship_type] || 'unknown',
         confidence: addRelForm.confidence,
         notes: addRelForm.notes,
         source: 'admin',

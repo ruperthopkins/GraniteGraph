@@ -1,7 +1,7 @@
 # Granite Graph Documentation
 
 Documentation for the Granite Graph cemetery knowledge graph project.
-Mount Sinai, Long Island · Est. 1778 · granite-graph.com
+Seaview Cemetery / Mt. Sinai Congregational Church · Mount Sinai, Long Island · Est. 1778 · granite-graph.com
 
 ## Contents
 
@@ -12,8 +12,7 @@ Mount Sinai, Long Island · Est. 1778 · granite-graph.com
 - [constraints.md](schema/constraints.md) — Allowed values for controlled vocabulary fields
 
 ### Process
-- [data-sources.md](process/data-sources.md) — Source inventory: Mallmann, church records, White genealogies, etc.
-- [import-patterns.md](process/import-patterns.md) — How new sources get integrated
+- [data-capture.md](process/data-capture.md) — Data capture strategy: mapping, text extraction, image processing, and model selection policy
 - [volunteer-guide.md](process/volunteer-guide.md) — One-page contributor guide (non-technical)
 
 ### Architecture
@@ -23,4 +22,4 @@ Mount Sinai, Long Island · Est. 1778 · granite-graph.com
 - [code-review-2026-05-21.md](maintenance/code-review-2026-05-21.md) — Milestone code review findings and prioritised fix list
 
 ---
-*Last updated: 2026-05-21*
+*Last updated: 2026-05-26*

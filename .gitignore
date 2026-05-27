@@ -22,4 +22,17 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-~
+~$*
+
+# assets/ — large binary files stay local; only structure and READMEs are tracked
+assets/**/*.jpg
+assets/**/*.jpeg
+assets/**/*.JPG
+assets/**/*.JPEG
+assets/**/*.png
+assets/**/*.PNG
+assets/**/*.tif
+assets/**/*.tiff
+assets/**/*.TIFF
+assets/**/*.pdf
+assets/**/*.PDF

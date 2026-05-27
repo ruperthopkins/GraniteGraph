@@ -4,19 +4,9 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
-import { normaliseName, matchScoreDetails, parseDate } from '../utils/nameNorm'
+import { normaliseName, matchScoreDetails, fmtDate } from '../utils/nameNorm'
+import { SOURCE_IDS } from '../constants'
 import { mergePersons } from '../utils/mergePersons'
-
-// ── Shared helpers ────────────────────────────────────────────────────────────
-const MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-function fmtDate(verbatim, parsed) {
-  const p = parsed || parseDate(verbatim)
-  if (!p) return verbatim || null
-  const parts = p.split('-')
-  if (parts.length === 3) return `${parseInt(parts[2])} ${MONTH_ABBR[parseInt(parts[1])]} ${parts[0]}`
-  if (parts.length === 2) return `${MONTH_ABBR[parseInt(parts[1])]} ${parts[0]}`
-  return parts[0]
-}
 
 // Always store pair key with lexicographically smaller UUID first
 function pairKey(id1, id2) {
@@ -25,8 +15,8 @@ function pairKey(id1, id2) {
 
 // Source metadata — keyed by source_id UUID
 const SOURCE_META = {
-  '800c5884-d180-42b0-9ca6-4e05c8fd64cb': { label: 'Church record', priority: 3 },
-  '9cb5c6d4-83b2-4ec6-ae59-72d2d7eb1155': { label: 'Mallmann 1899',  priority: 2 },
+  [SOURCE_IDS.CHURCH]:   { label: 'Church record', priority: 3 },
+  [SOURCE_IDS.MALLMANN]: { label: 'Mallmann 1899',  priority: 2 },
 }
 function sourceLabel(person) {
   return SOURCE_META[person.source_id]?.label ?? (person.mallmann_ref ? 'Mallmann 1899' : null)

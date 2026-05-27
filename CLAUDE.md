@@ -4,7 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Granite Graph is a cemetery volunteer data collection and genealogy application for documenting historic gravestone inscriptions and building a family relationship graph. It is focused on the Church of Christ at Old Man's cemetery in Mount Sinai, Long Island, NY, with church records spanning 1778–1839.
+Granite Graph is a cemetery volunteer data collection and genealogy application for documenting historic gravestone inscriptions and building a family relationship graph. It is focused on two related but legally separate institutions in Mount Sinai, Long Island, NY:
+
+- **Seaview Cemetery** — the cemetery corporation that owns and manages the burial ground
+- **Mt. Sinai Congregational Church (United Church of Christ)** — formerly the Church of Christ at Old Man's; holds church meeting records spanning 1778–1839
+
+The cemetery is commonly referred to in historical sources as "Old Man's" or "Mount Sinai"; its official corporate name is Seaview Cemetery.
 
 ## Commands
 
