@@ -347,7 +347,13 @@ export default function WhiteImport({ onBack }) {
         })
         const data = await res.json()
         if (!res.ok) { setExtractError(data.error || 'Extraction failed'); setExtracting(false); return }
-        const newSections = data.sections || []
+        const raw = data.sections || []
+        // Normalise: if Claude returned head fields flat (not nested), wrap them
+        const newSections = raw.map(s => {
+          if (s.head) return s
+          const { section_number, lineage, spouses, children, ...headFields } = s
+          return { section_number, lineage, head: headFields, spouses: spouses || [], children: children || [] }
+        })
         setAllSections(prev => [...prev, ...newSections])
         setEnabled(prev => [...prev, ...newSections.map(() => true)])
         setPageNumber(n => n + 1)

@@ -16,29 +16,43 @@ export default async function handler(req, res) {
 
 Extract all genealogy sections visible on this page from Willis H. White's genealogy. White writes in numbered prose sections. Return ONLY valid JSON — no markdown, no fences, no comments.
 
-RETURN FORMAT:
+RETURN FORMAT — follow this structure exactly:
 {
   "book_key": string,
   "page_number": number|null,
-  "sections": [ ...section objects ]
+  "sections": [
+    {
+      "section_number": integer,
+      "lineage": ["FirstName1", "FirstName2"],
+      "head": {
+        "full_name": string,
+        "first_name": string, "middle_name": string|null, "last_name": string, "maiden_name": string|null,
+        "gender": "M"|"F"|null,
+        "generation": integer|null,
+        "white_ref": string,
+        "parent_section_number": integer|null,
+        "date_of_birth_verbatim": string|null, "date_of_birth_year": number|null,
+        "date_of_death_verbatim": string|null, "date_of_death_year": number|null,
+        "burial_place": string|null,
+        "notes": string|null
+      },
+      "spouses": [ ...spouse objects ],
+      "children": [ ...child objects ]
+    }
+  ]
 }
 
-SECTION STRUCTURE:
-Each section begins with a bold or prominent number then a name: "N. FIRSTNAME LASTNAME (lineage_chain) was born..."
-- section_number: integer N
-- The lineage chain in parentheses after the name traces ancestry (e.g. "(William, Samuel, Jonathan)") — extract as a lineage array of first names in order
-
-SECTION HEAD fields:
+SECTION HEAD (nested inside "head"): Each section begins with "N. FIRSTNAME LASTNAME (lineage_chain) was born..."
 - full_name, first_name, middle_name (null if absent), last_name, maiden_name (null if absent), gender ("M"|"F"|null)
-- generation: the superscript or inline generation number attached to the head's name (e.g. WILLIAM¹ → 1); null if not present
+- generation: superscript or inline generation number on the head's name (e.g. WILLIAM¹ → 1); null if not present
 - white_ref: "{bookKey}_{section_number}"  e.g. "Tillotson_1"
-- parent_section_number: integer section number where this person appeared as a "+" child, if determinable from this page; otherwise null
+- parent_section_number: section number where this person appeared as a "+" child; null if not determinable
 - date_of_birth_verbatim: string|null, date_of_birth_year: number|null
 - date_of_death_verbatim: string|null, date_of_death_year: number|null
 - burial_place: cemetery or place name if "was buried at/in X"; null otherwise
 - notes: any remaining information; include footnote references as [cite:N]
 
-SPOUSE fields (array "spouses"):
+SPOUSE fields (array "spouses" at the section level, NOT inside head):
 - seq: 1 for first marriage, 2 for second, etc.
 - full_name, first_name, middle_name, last_name, maiden_name, gender
 - white_ref: "{bookKey}_{section_number}_wife_{seq}" or "_husband_{seq}"
