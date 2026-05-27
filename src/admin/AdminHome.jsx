@@ -26,6 +26,14 @@ const ALL_TOOLS = [
     roles: ['admin'],
   },
   {
+    id: 'white',
+    icon: '📗',
+    title: 'White Genealogy Import',
+    description: 'Import Willis H. White genealogy pages via Claude vision — supports any White volume',
+    status: 'active',
+    roles: ['admin'],
+  },
+  {
     id: 'dedup',
     icon: '⚖️',
     title: 'Duplicate Scan',

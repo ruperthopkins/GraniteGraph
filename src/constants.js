@@ -3,6 +3,8 @@ export const CEMETERY_ID = 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107'
 export const SOURCE_IDS = {
   CHURCH:   '800c5884-d180-42b0-9ca6-4e05c8fd64cb',
   MALLMANN: '9cb5c6d4-83b2-4ec6-ae59-72d2d7eb1155',
+  // Run the prerequisite migration SQL in WhiteImport before first use
+  WHITE:    'a3b4c5d6-e7f8-4901-bcde-f01234567890',
 }
 
 export const ROLES = {

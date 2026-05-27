@@ -11,6 +11,7 @@ import PersonView from './admin/PersonView'
 import MallmannImport from './admin/MallmannImport'
 import DuplicateScan from './admin/DuplicateScan'
 import UnmatchedStones from './admin/UnmatchedStones'
+import WhiteImport from './admin/WhiteImport'
 
 function App() {
   const [session, setSession] = useState(null)
@@ -156,6 +157,9 @@ function App() {
       )}
       {page === 'admin_stones' && isAdmin && (
         <UnmatchedStones onBack={() => setPage('admin')} />
+      )}
+      {page === 'admin_white' && isAdmin && (
+        <WhiteImport onBack={() => setPage('admin')} />
       )}
     </div>
   )
