@@ -11,47 +11,52 @@ export default async function handler(req, res) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set' })
 
-  const schema = `{
+  const systemPrompt = `You are a genealogy extraction assistant for the Granite Graph project — a social network graph of a historic Long Island community (Seaview Cemetery / Mount Sinai, NY).
+
+Extract all genealogy sections visible on the provided Mallmann 1899 genealogy page scan. Return ONLY valid JSON — no markdown, no fences, no explanation.
+
+RETURN FORMAT:
+{
   "family_name": string,
   "sections": [
     {
-      "section_id": string,            // letter (A,B,C) or number (1,2,3...) — exactly as printed
+      "section_id": string,
       "head": {
-        "full_name": string,           // Title Case, e.g. "Samuel Hopkins"
+        "full_name": string,
         "first_name": string,
         "middle_name": string|null,
         "last_name": string,
         "maiden_name": string|null,
         "gender": "M"|"F"|null,
-        "mallmann_ref": string,        // e.g. "Hopkins_2"
+        "mallmann_ref": string,
         "date_of_birth_verbatim": string|null,
         "date_of_birth_year": number|null,
         "date_of_death_verbatim": string|null,
         "date_of_death_year": number|null,
-        "parent_section_id": string|null,  // section ID of parent's family record, from "s." or "da." line
+        "parent_section_id": string|null,
         "notes": string|null
       },
       "spouses": [
         {
-          "seq": number,               // 1 for first marriage, 2 for second, etc.
+          "seq": number,
           "full_name": string,
           "first_name": string,
           "middle_name": string|null,
           "last_name": string,
-          "maiden_name": string|null,  // birth surname for married women, else null
+          "maiden_name": string|null,
           "gender": "M"|"F"|null,
-          "mallmann_ref": string,      // e.g. "Hopkins_2_wife_1"
+          "mallmann_ref": string,
           "marriage_date_verbatim": string|null,
           "marriage_year": number|null,
           "date_of_birth_verbatim": string|null,
           "date_of_birth_year": number|null,
           "date_of_death_verbatim": string|null,
           "date_of_death_year": number|null,
-          "consanguineous": boolean,   // true ONLY when BOTH the head AND this spouse name appear in SMALL CAPITALS
-          "parentage": string|null     // e.g. "da. John and Elizabeth ( ) Robinson"
+          "consanguineous": boolean,
+          "parentage": string|null
         }
       ],
-      "child_count": number|null,      // from "N ch." line
+      "child_count": number|null,
       "children": [
         {
           "full_name": string,
@@ -65,13 +70,34 @@ export default async function handler(req, res) {
           "date_of_death_verbatim": string|null,
           "date_of_death_year": number|null,
           "child_type": "numbered"|"lettered"|"asterisked"|"unnumbered",
-          "spouse_seq": number|null,   // which parent spouse (1, 2...) based on birth dates
+          "spouse_seq": number|null,
           "notes": string|null
         }
       ]
     }
   ]
-}`
+}
+
+MALLMANN STRUCTURE RULES:
+1. Sections are headed by a bold letter (A, B, C… ancestors) or bold number (1, 2, 3… descendants).
+2. Section head's name is printed in SMALL CAPITALS at the top.
+3. mallmann_ref for section heads: "{familyName}_{section_id}"  e.g. "Hopkins_2"
+4. mallmann_ref for spouses: "{familyName}_{section_id}_wife_{seq}" or "_husband_{seq}"  e.g. "Hopkins_2_wife_1"
+5. mallmann_ref for unnumbered children: "{familyName}_{section_id}_child_{FirstName}_{birth_year}"  e.g. "Hopkins_2_child_John_1783"
+6. Numbered children (integer before name) → child_type:"numbered", mallmann_ref = "{familyName}_{that_number}"
+7. Lettered children (letter before name) → child_type:"lettered", mallmann_ref = "{familyName}_{that_letter}"
+8. Asterisked children (* before name) → child_type:"asterisked"; resolve the footnote (e.g. "(*) see No. 39") to get the section number, mallmann_ref = "{familyName}_{resolved_number}"
+9. Unnumbered children (no prefix) → child_type:"unnumbered"
+10. CONSANGUINEOUS: true ONLY when BOTH section head AND spouse are typeset in SMALL CAPITALS. Asterisk alone does NOT indicate consanguinity.
+11. spouse_seq on each child: infer from birth dates vs spouse's death date. If unclear, use 1.
+12. Abbreviations: b.=born, d.=died, m.=married, s.=son of, da.=daughter of, ae.=aged, ch.=children, wid.=widow, d.a.p.=died without issue, d.unm.=died unmarried.
+13. parent_section_id: if text says "s. [Father] and [Mother]..." and that father has a known section ID, record it. Otherwise null.
+14. MIDDLE NAMES: "George Gilbert Hopkins" → first_name:"George", middle_name:"Gilbert"; "Hannah Y. Hopkins" → first_name:"Hannah", middle_name:"Y". Apply to heads, spouses, and children.
+15. DATE PARSING — critical:
+    - "b. [date]; m. [date], [Name]" → date after "b." = birth, date after "m." = marriage NOT death; set date_of_death_verbatim:null; put "m. [date], [Name]" in notes.
+    - "b. [date], d. [date]" → birth and death.
+    - Semicolon before "m." is Mallmann's birth/marriage separator — never treat a marriage date as a death date.
+    - Only set date_of_death_verbatim when text explicitly contains "d." followed by a date.`
 
   const userContent = [
     {
@@ -80,33 +106,7 @@ export default async function handler(req, res) {
     },
     {
       type: 'text',
-      text: `Family name namespace: "${familyName}". Page number: ${pageNumber ?? 'unknown'}.
-
-Extract all genealogy sections visible on this page. Return ONLY valid JSON — no markdown, no fences, no comments.
-
-MALLMANN STRUCTURE RULES:
-1. Sections are headed by a bold letter (A, B, C… for ancestors) or bold number (1, 2, 3… for descendants).
-2. The section head's name is printed in SMALL CAPITALS at the top.
-3. mallmann_ref for section heads: "${familyName}_{section_id}"  e.g. "Hopkins_2"
-4. mallmann_ref for spouses: "${familyName}_{section_id}_wife_{seq}" or "_husband_{seq}"  e.g. "Hopkins_2_wife_1"
-5. mallmann_ref for unnumbered children: "${familyName}_{section_id}_child_{FirstName}_{birth_year}"  e.g. "Hopkins_2_child_John_1783"
-6. Numbered children (integer before name) → child_type:"numbered", mallmann_ref = "${familyName}_{that_number}"
-7. Lettered children (letter before name) → child_type:"lettered", mallmann_ref = "${familyName}_{that_letter}"
-8. Asterisked children (asterisk before name) → child_type:"asterisked"; resolve the footnote at the bottom of the section (e.g. "(*) see No. 39") to get the section number, then mallmann_ref = "${familyName}_{resolved_number}"
-9. Unnumbered children (no prefix) → child_type:"unnumbered"
-10. CONSANGUINEOUS: set consanguineous:true ONLY when BOTH the section head's name AND the spouse's name are typeset in SMALL CAPITALS. An asterisk alone does NOT mean consanguineous.
-11. spouse_seq on each child: infer which parent's spouse (1, 2…) based on birth dates vs the spouse's death date. If only one spouse or unclear, use spouse_seq:1.
-12. Abbreviations: b.=born, d.=died, m.=married, s.=son of, da.=daughter of, ae.=aged, ch.=children, wid.=widow, d.a.p.=died without issue, d.unm.=died unmarried.
-13. For the head's parent_section_id: if the text says "s. [Father] and [Mother] ([Maiden]) [Surname]" and that father appears as a section head with a known ID, record that section_id. Otherwise null.
-15. MIDDLE NAMES: When a person's given name contains two parts before the surname, split them — first_name = first given name, middle_name = second given name or initial. Examples: "George Gilbert Hopkins" → first_name:"George", middle_name:"Gilbert"; "Hannah Y. Hopkins" → first_name:"Hannah", middle_name:"Y". Apply this to section heads, spouses, and children alike.
-14. DATE PARSING FOR CHILDREN — this is critical:
-    • "b. [date]; m. [date], [SpouseName]" → date after "b." = date_of_birth_verbatim, date after "m." is a MARRIAGE date NOT a death date — set date_of_death_verbatim:null and put "m. [date], [SpouseName]" in notes.
-    • "b. [date], d. [date]" → date after "b." = date_of_birth_verbatim, date after "d." = date_of_death_verbatim.
-    • The semicolon (;) before "m." is Mallmann's separator between birth and marriage — never treat a marriage date as a death date.
-    • If a spouse name follows the marriage date (e.g. "m. Oct. 17, 1849, J. Bryan Marshall"), include the full marriage note in the notes field: "m. Oct. 17, 1849, J. Bryan Marshall".
-    • Only set date_of_death_verbatim when the text explicitly contains "d." followed by a date.
-
-${schema}`,
+      text: `Family name: "${familyName}". Page: ${pageNumber ?? 'unknown'}. Use mallmann_ref prefix "${familyName}_". Extract all sections visible on this page.`,
     },
   ]
 
@@ -117,11 +117,16 @@ ${schema}`,
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'output-128k-2025-02-19',
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 16000,
-        messages: [{ role: 'user', content: userContent }],
+        max_tokens: 32000,
+        system: systemPrompt,
+        messages: [
+          { role: 'user', content: userContent },
+          { role: 'assistant', content: '{' },
+        ],
       }),
     })
 
@@ -133,9 +138,9 @@ ${schema}`,
     const data = await response.json()
     if (data.error) return res.status(400).json({ error: data.error.message })
 
-    const raw = data.content?.filter(b => b.type === 'text').map(b => b.text).join('') ?? ''
+    // Prefill started the assistant response with '{'; prepend it to reconstruct valid JSON
+    const raw = '{' + (data.content?.filter(b => b.type === 'text').map(b => b.text).join('') ?? '')
 
-    // Try several strategies to extract JSON from whatever Claude returned
     let parsed = null
     const first = raw.indexOf('{')
     const last  = raw.lastIndexOf('}')
