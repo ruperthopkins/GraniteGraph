@@ -125,7 +125,6 @@ MALLMANN STRUCTURE RULES:
         system: systemPrompt,
         messages: [
           { role: 'user', content: userContent },
-          { role: 'assistant', content: '{' },
         ],
       }),
     })
@@ -138,8 +137,7 @@ MALLMANN STRUCTURE RULES:
     const data = await response.json()
     if (data.error) return res.status(400).json({ error: data.error.message })
 
-    // Prefill started the assistant response with '{'; prepend it to reconstruct valid JSON
-    const raw = '{' + (data.content?.filter(b => b.type === 'text').map(b => b.text).join('') ?? '')
+    const raw = data.content?.filter(b => b.type === 'text').map(b => b.text).join('') ?? ''
 
     let parsed = null
     const first = raw.indexOf('{')
