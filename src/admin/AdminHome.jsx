@@ -1,4 +1,5 @@
 // src/admin/AdminHome.jsx
+import StatsPanel from './StatsPanel'
 
 const ALL_TOOLS = [
   {
@@ -95,11 +96,7 @@ export default function AdminHome({ profile, onNavigate, onBack }) {
       </div>
 
       <div className="p-4 max-w-lg mx-auto mt-4">
-        <p className="text-gray-400 text-sm mb-6">
-          {isResearcher
-            ? 'Research tools for reviewing and curating community records.'
-            : 'Administrative tools for curation, import, and graph building. Volunteers do not see this area.'}
-        </p>
+        <StatsPanel />
 
         <div className="flex flex-col gap-3">
           {tools.map(tool => (
