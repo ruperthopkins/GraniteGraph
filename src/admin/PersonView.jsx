@@ -62,6 +62,21 @@ function SourceBadge({ value }) {
   )
 }
 
+// ── Bibliographic source entry ────────────────────────────────────────────────
+function SourceEntry({ dot, title, subtitle, ref_code, note }) {
+  return (
+    <div style={{ display: 'flex', gap: 10 }}>
+      <div style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flexShrink: 0, marginTop: 5 }} />
+      <div>
+        <p style={{ fontSize: 12, fontStyle: 'italic', margin: '0 0 1px', color: 'var(--color-text-primary)' }}>{title}</p>
+        {subtitle && <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '0 0 1px' }}>{subtitle}</p>}
+        {ref_code && <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: '0 0 1px', fontFamily: 'monospace' }}>§ {ref_code}</p>}
+        {note && <p style={{ fontSize: 11, color: 'var(--color-text-info)', margin: 0 }}>{note}</p>}
+      </div>
+    </div>
+  )
+}
+
 // ── Tree person box ───────────────────────────────────────────────────────────
 function TreeBox({ person, isFocal = false, childCount = 0, onClick }) {
   if (!person) return null
@@ -141,6 +156,9 @@ export default function PersonView({ onBack }) {
   const [coParentConfidence, setCoParentConfidence] = useState('probable')
   const [savingCoParents, setSavingCoParents] = useState(false)
 
+  // Sources
+  const [personSources, setPersonSources] = useState([])
+
   // Family tree
   const [treeGrandparents, setTreeGrandparents] = useState({})     // parentId → [person, ...]
   const [childDescendantCounts, setChildDescendantCounts] = useState({}) // childId → count
@@ -195,6 +213,7 @@ export default function PersonView({ onBack }) {
     setChildDescendantCounts({})
     setSpouseChildIds({})
     setDerivedSiblings([])
+    setPersonSources([])
 
     // Full deceased record
     const { data: person, error: personError } = await supabase
@@ -294,6 +313,35 @@ export default function PersonView({ onBack }) {
     } else {
       setDerivedSiblings([])
     }
+
+    // Sources: fetch deceased_sources rows, then fetch source records separately
+    // (avoids PostgREST schema cache issues with recently-added columns)
+    const { data: srcLinks } = await supabase
+      .from('deceased_sources')
+      .select('deceased_source_id, source_id, source_type, church_event_type, church_event_date_verbatim')
+      .eq('deceased_id', record.deceased_id)
+
+    // Collect unique source IDs — deceased_sources rows + deceased.source_id as fallback
+    const sourceIds = [...new Set([
+      ...(srcLinks || []).map(l => l.source_id),
+      ...(person?.source_id ? [person.source_id] : []),
+    ])]
+    let sourceMap = {}
+    if (sourceIds.length > 0) {
+      const { data: sourceRecs } = await supabase
+        .from('sources')
+        .select('source_id, title, author, date_range, reliability')
+        .in('source_id', sourceIds)
+      ;(sourceRecs || []).forEach(s => { sourceMap[s.source_id] = s })
+    }
+
+    // If no deceased_sources rows, fall back to the primary source on the deceased record
+    const mergedSources = srcLinks && srcLinks.length > 0
+      ? srcLinks.map(l => ({ ...l, sources: sourceMap[l.source_id] || null }))
+      : person?.source_id
+        ? [{ deceased_source_id: 'primary', source_type: null, church_event_type: null, church_event_date_verbatim: null, sources: sourceMap[person.source_id] || null }]
+        : []
+    setPersonSources(mergedSources)
 
     setLoading(false)
   }, [])
@@ -874,30 +922,26 @@ export default function PersonView({ onBack }) {
               {/* Sources panel */}
               <div style={card}>
                 <p style={sectionLabel}>Sources</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {selected.source_id && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-text-success)', flexShrink: 0 }} />
-                      <span style={{ fontSize: 12 }}>
-                        {selected.source_id === '800c5884-d180-42b0-9ca6-4e05c8fd64cb' ? 'Mt Sinai Church records' :
-                         selected.source_id === '9cb5c6d4-83b2-4ec6-ae59-72d2d7eb1155' ? 'Malman genealogy 1899' :
-                         'Reference source'}
-                      </span>
-                    </div>
-                  )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {stoneData && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-text-success)', flexShrink: 0 }} />
-                      <span style={{ fontSize: 12 }}>Gravestone (field catalog)</span>
-                    </div>
+                    <SourceEntry
+                      dot="var(--color-text-success)"
+                      title="Gravestone inscription"
+                      subtitle="Field catalog — Seaview Cemetery"
+                      ref_code={null}
+                    />
                   )}
-                  {selected.church_event_type && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-text-info)', flexShrink: 0 }} />
-                      <span style={{ fontSize: 12 }}>Church event: {selected.church_event_type} {selected.church_event_date_verbatim}</span>
-                    </div>
-                  )}
-                  {!selected.source_id && !stoneData && (
+                  {personSources.map(link => (
+                    <SourceEntry
+                      key={link.deceased_source_id}
+                      dot="var(--color-text-info)"
+                      title={link.sources?.title || 'Unknown source'}
+                      subtitle={[link.sources?.author, link.sources?.date_range].filter(Boolean).join(' · ')}
+                      ref_code={selected.mallmann_ref || selected.white_ref || null}
+                      note={link.church_event_type ? `${link.church_event_type}${link.church_event_date_verbatim ? ' · ' + link.church_event_date_verbatim : ''}` : null}
+                    />
+                  ))}
+                  {personSources.length === 0 && !stoneData && (
                     <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: 0 }}>No sources recorded</p>
                   )}
                 </div>

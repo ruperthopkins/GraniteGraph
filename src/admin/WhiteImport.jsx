@@ -6,12 +6,35 @@
 import { useState, useRef } from 'react'
 import { CEMETERY_ID, SOURCE_IDS } from '../constants'
 
+// Known White genealogy volumes — each maps to its own source record in the DB
+const WHITE_BOOKS = [
+  {
+    key:      'Tillotson_2008',
+    sourceId: SOURCE_IDS.WHITE_TILLOTSON_2008,
+    title:    'The Tillotson Family, Long Island Cordwood and the Decline of East Coast Sail',
+    author:   'Willis H. White',
+    year:     '2008',
+  },
+  {
+    key:      'Tillotson_2001',
+    sourceId: SOURCE_IDS.WHITE_TILLOTSON_2001,
+    title:    'The Tillotson Family of Long Island, NY: Three Generations of the Descendants of Samuel Tillotson',
+    author:   'Willis H. White',
+    year:     '2001',
+  },
+  {
+    key:      'Miller_2007',
+    sourceId: SOURCE_IDS.WHITE_MILLER_2007,
+    title:    'The Ancestry of Alila May Miller (1881–1960) of Miller Place, Long Island, New York',
+    author:   'Willis H. White',
+    year:     '2007',
+  },
+]
+
 // ── SQL helpers ───────────────────────────────────────────────────────────────
 
 const esc = (s) => (s || '').replace(/'/g, "''")
 const q   = (s) => (s != null && s !== '') ? `'${esc(String(s))}'` : 'NULL'
-
-const SOURCE_ID = SOURCE_IDS.WHITE  // must exist in deceased_sources; see migration SQL below
 
 const updateCols = [
   'first_name', 'middle_name', 'last_name', 'maiden_name', 'gender',
@@ -20,7 +43,7 @@ const updateCols = [
   'date_of_birth_parsed', 'date_of_death_parsed', 'notes',
 ]
 
-function personUpsert(r) {
+function personUpsert(r, sourceId) {
   const setClauses = updateCols.map(c => `  ${c} = COALESCE(deceased.${c}, EXCLUDED.${c})`).join(',\n')
   const displayName = r.full_name || [r.first_name, r.last_name].filter(Boolean).join(' ')
   return (
@@ -33,7 +56,7 @@ function personUpsert(r) {
     `  date_of_birth_parsed, date_of_death_parsed, notes)\n` +
     `VALUES (\n` +
     `  ${q(r.first_name)}, ${q(r.middle_name)}, ${q(r.last_name)}, ${q(r.maiden_name)}, ${q(r.gender)},\n` +
-    `  '${CEMETERY_ID}', '${SOURCE_ID}', ${q(r.white_ref)},\n` +
+    `  '${CEMETERY_ID}', '${sourceId}', ${q(r.white_ref)},\n` +
     `  ${q(r.date_of_birth_verbatim)}, ${q(r.date_of_death_verbatim)},\n` +
     `  ${r.date_of_birth_year ?? 'NULL'}, ${r.date_of_death_year ?? 'NULL'},\n` +
     `  _parse_hist_date(${q(r.date_of_birth_verbatim)}), _parse_hist_date(${q(r.date_of_death_verbatim)}), ${q(r.notes)})\n` +
@@ -42,7 +65,7 @@ function personUpsert(r) {
     `  deceased_id, source_id, source_type,\n` +
     `  date_of_birth_verbatim, date_of_death_verbatim,\n` +
     `  date_of_birth_year, date_of_death_year, notes)\n` +
-    `SELECT deceased_id, '${SOURCE_ID}', 'family_record',\n` +
+    `SELECT deceased_id, '${sourceId}', 'family_record',\n` +
     `  ${q(r.date_of_birth_verbatim)}, ${q(r.date_of_death_verbatim)},\n` +
     `  ${r.date_of_birth_year ?? 'NULL'}, ${r.date_of_death_year ?? 'NULL'}, ${q(r.notes)}\n` +
     `FROM deceased WHERE white_ref = ${q(r.white_ref)}\nON CONFLICT DO NOTHING;`
@@ -52,12 +75,12 @@ function personUpsert(r) {
 const inverseRel = { SPOUSE: 'SPOUSE', PARENT_OF: 'CHILD_OF', CHILD_OF: 'PARENT_OF', SIBLING_OF: 'SIBLING_OF' }
 const toDbRel = (r) => r.toLowerCase().replace('_of', '')
 
-function kinshipPair(refA, refB, relType, evidence) {
+function kinshipPair(refA, refB, relType, evidence, sourceId) {
   const inv = inverseRel[relType]
   const dbRel = toDbRel(relType)
   const dbInv = toDbRel(inv)
   const ev = q(evidence || null)
-  const src = `'${SOURCE_ID}'`
+  const src = `'${sourceId}'`
   return (
     `INSERT INTO kinship (primary_deceased_id, relative_deceased_id, relationship_type, source, confidence, notes, source_id)\n` +
     `SELECT a.deceased_id, b.deceased_id, '${dbRel}', 'family_record', 'confirmed', ${ev}, ${src}\n` +
@@ -70,22 +93,20 @@ function kinshipPair(refA, refB, relType, evidence) {
   )
 }
 
-function genSQL(allSections, bookKey, bookTitle) {
+function genSQL(allSections, bookKey, bookTitle, sourceId) {
   if (!allSections.length) return ''
   const today = new Date().toISOString().split('T')[0]
   const lines = [
     `-- White genealogy import: ${bookTitle}`,
     `-- Book key: ${bookKey}`,
     `-- Generated: ${today}`,
-    `-- Source ID: ${SOURCE_ID}`,
+    `-- Source ID: ${sourceId}`,
     `-- Idempotent: safe to re-run`,
     ``,
     `-- ── PREREQUISITE MIGRATIONS (run once if not already done) ──────────────────`,
     `-- ALTER TABLE deceased ADD COLUMN IF NOT EXISTS white_ref TEXT UNIQUE;`,
     `-- CREATE INDEX IF NOT EXISTS deceased_white_ref_idx ON deceased(white_ref) WHERE white_ref IS NOT NULL;`,
-    `-- INSERT INTO sources (source_id, source_type, title)`,
-    `--   VALUES ('${SOURCE_ID}', 'family_record', 'Willis H. White Genealogies')`,
-    `--   ON CONFLICT DO NOTHING;`,
+    `-- Source records are managed via the Supabase sources table.`,
     ``,
     `BEGIN;`,
     ``,
@@ -98,7 +119,7 @@ function genSQL(allSections, bookKey, bookTitle) {
     if (!r.white_ref || r.white_ref.endsWith('_pending')) return
     if (seen.has(r.white_ref)) return
     seen.add(r.white_ref)
-    lines.push('', personUpsert(r))
+    lines.push('', personUpsert(r, sourceId))
   }
 
   for (const section of allSections) {
@@ -117,16 +138,16 @@ function genSQL(allSections, bookKey, bookTitle) {
     for (const sp of spouses) {
       if (!sp.white_ref || sp.white_ref.endsWith('_pending')) continue
       lines.push(kinshipPair(head.white_ref, sp.white_ref, 'SPOUSE',
-        sp.marriage_date_verbatim ? `married ${sp.marriage_date_verbatim}` : null))
+        sp.marriage_date_verbatim ? `married ${sp.marriage_date_verbatim}` : null, sourceId))
     }
     for (const ch of children) {
       if (!ch.white_ref || ch.white_ref.endsWith('_pending')) continue
       lines.push(kinshipPair(head.white_ref, ch.white_ref, 'PARENT_OF',
-        `child of ${head.first_name} ${head.last_name}`))
+        `child of ${head.first_name} ${head.last_name}`, sourceId))
       const parentSpouse = spouses[(ch.spouse_seq ?? 1) - 1]
       if (parentSpouse?.white_ref && !parentSpouse.white_ref.endsWith('_pending')) {
         lines.push(kinshipPair(parentSpouse.white_ref, ch.white_ref, 'PARENT_OF',
-          `child of ${parentSpouse.first_name} ${parentSpouse.last_name}`))
+          `child of ${parentSpouse.first_name} ${parentSpouse.last_name}`, sourceId))
       }
     }
   }
@@ -313,8 +334,10 @@ function SectionCard({ section, index, onToggle, enabled, onUpdate }) {
 
 export default function WhiteImport({ onBack }) {
   const [phase, setPhase]           = useState('config')  // config | import | review | sql
+  const [selectedBook, setSelectedBook] = useState('')   // WHITE_BOOKS key or 'custom'
   const [bookKey, setBookKey]       = useState('')
   const [bookTitle, setBookTitle]   = useState('')
+  const [sourceId, setSourceId]     = useState('')
   const [allSections, setAllSections] = useState([])
   const [enabled, setEnabled]       = useState([])
   const [extracting, setExtracting] = useState(false)
@@ -325,8 +348,22 @@ export default function WhiteImport({ onBack }) {
   const [copied, setCopied]         = useState(false)
   const fileRef = useRef()
 
+  const selectBook = (key) => {
+    setSelectedBook(key)
+    const book = WHITE_BOOKS.find(b => b.key === key)
+    if (book) {
+      setBookKey(book.key)
+      setBookTitle(book.title)
+      setSourceId(book.sourceId)
+    } else {
+      setBookKey('')
+      setBookTitle('')
+      setSourceId('')
+    }
+  }
+
   const startConfig = () => {
-    if (!bookKey.trim() || !bookTitle.trim()) return
+    if (!bookKey.trim() || !bookTitle.trim() || !sourceId.trim()) return
     setPhase('import')
   }
 
@@ -378,7 +415,7 @@ export default function WhiteImport({ onBack }) {
 
   const generateSQL = () => {
     const active = allSections.filter((_, i) => enabled[i])
-    setSql(genSQL(active, bookKey, bookTitle))
+    setSql(genSQL(active, bookKey, bookTitle, sourceId))
     setPhase('sql')
   }
 
@@ -399,39 +436,39 @@ export default function WhiteImport({ onBack }) {
         </div>
         <div style={{ maxWidth: 560, margin: '40px auto', padding: '0 16px' }}>
           <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 24, lineHeight: 1.6 }}>
-            Configure this import session. The book key namespaces all references —
-            use the same key every time you import pages from the same book.
+            Select the White volume you are importing. The book key namespaces all references in the database.
           </p>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 12, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>Book key (short identifier, no spaces)</label>
-            <input value={bookKey} onChange={e => setBookKey(e.target.value.replace(/\s+/g, ''))}
-              placeholder="e.g. Tillotson, Hopkins, Miller"
-              style={{ width: '100%', background: 'white', color: '#111', border: '2px solid var(--color-border-success)', borderRadius: 'var(--border-radius-sm)', padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
-          </div>
           <div style={{ marginBottom: 24 }}>
-            <label style={{ fontSize: 12, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 4 }}>Full book title</label>
-            <input value={bookTitle} onChange={e => setBookTitle(e.target.value)}
-              placeholder="e.g. The Tillotson Family, Long Island Cordwood…"
-              style={{ width: '100%', background: 'white', color: '#111', border: '2px solid var(--color-border-success)', borderRadius: 'var(--border-radius-sm)', padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+            <label style={{ fontSize: 12, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 8 }}>Select volume</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {WHITE_BOOKS.map(book => (
+                <label key={book.key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer',
+                  background: selectedBook === book.key ? 'var(--color-background-success)' : 'var(--color-background-secondary)',
+                  border: `1.5px solid ${selectedBook === book.key ? 'var(--color-border-success)' : 'var(--color-border-tertiary)'}`,
+                  borderRadius: 'var(--border-radius-md)', padding: '10px 12px' }}>
+                  <input type="radio" name="book" value={book.key} checked={selectedBook === book.key}
+                    onChange={() => selectBook(book.key)} style={{ marginTop: 2 }} />
+                  <div>
+                    <p style={{ margin: '0 0 2px', fontSize: 13, fontStyle: 'italic', color: 'var(--color-text-primary)' }}>{book.title}</p>
+                    <p style={{ margin: 0, fontSize: 11, color: 'var(--color-text-tertiary)' }}>{book.author} · {book.year}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
           </div>
-          <button onClick={startConfig} disabled={!bookKey.trim() || !bookTitle.trim()}
+          <button onClick={startConfig} disabled={!selectedBook}
             style={{ fontSize: 14, padding: '10px 24px' }}>
             Start importing pages →
           </button>
           <div style={{ marginTop: 32, padding: '12px 14px', background: 'var(--color-background-secondary)', borderRadius: 'var(--border-radius-md)', border: '0.5px solid var(--color-border-tertiary)' }}>
-            <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '0 0 6px', fontWeight: 600 }}>Before first use — run these once in Supabase SQL editor:</p>
+            <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '0 0 6px', fontWeight: 600 }}>Schema prerequisites (run once, already done for Tillotson):</p>
             <pre style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
 {`ALTER TABLE deceased
   ADD COLUMN IF NOT EXISTS white_ref TEXT UNIQUE;
 
 CREATE INDEX IF NOT EXISTS deceased_white_ref_idx
   ON deceased(white_ref)
-  WHERE white_ref IS NOT NULL;
-
--- Add White source record (replace UUID if needed):
-INSERT INTO sources (source_id, source_type, title)
-  VALUES ('${SOURCE_IDS.WHITE}', 'family_record', 'Willis H. White Genealogies')
-  ON CONFLICT DO NOTHING;`}
+  WHERE white_ref IS NOT NULL;`}
             </pre>
           </div>
         </div>
