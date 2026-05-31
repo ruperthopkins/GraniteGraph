@@ -78,20 +78,29 @@ function SourceEntry({ dot, title, subtitle, ref_code, note }) {
 }
 
 // ── Tree person box ───────────────────────────────────────────────────────────
-function TreeBox({ person, isFocal = false, childCount = 0, onClick }) {
+const TREE_COLORS = {
+  focal:      { bg: 'var(--color-background-info,    rgba(37,99,235,0.18))',   border: '1.5px solid var(--color-border-info,    #3b82f6)', text: 'var(--color-text-info,    #93c5fd)', weight: 600 },
+  ancestor:   { bg: 'var(--color-background-warning, rgba(180,83,9,0.15))',    border: '0.5px solid var(--color-border-warning, #d97706)', text: 'var(--color-text-warning, #fcd34d)', weight: 500 },
+  descendant: { bg: 'var(--color-background-success, rgba(5,150,105,0.15))',   border: '0.5px solid var(--color-border-success, #10b981)', text: 'var(--color-text-success, #6ee7b7)', weight: 500 },
+  spouse:     { bg: 'var(--color-background-secondary, rgba(88,28,135,0.15))', border: '0.5px solid var(--color-border-secondary,#7c3aed)', text: 'var(--color-text-secondary, #c4b5fd)', weight: 500 },
+  sibling:    { bg: 'var(--color-background-primary,  rgba(30,41,59,0.6))',    border: '0.5px solid var(--color-border-tertiary, #475569)', text: 'var(--color-text-primary,   #e2e8f0)', weight: 500 },
+}
+
+function TreeBox({ person, isFocal = false, role = 'sibling', childCount = 0, onClick }) {
   if (!person) return null
   const name = person.full_name || [person.first_name, person.last_name].filter(Boolean).join(' ') || '?'
   const bYear = (person.date_of_birth_verbatim || '').match(/\b(1[5-9]\d{2}|20\d{2})\b/)?.[1]
   const dYear = (person.date_of_death_verbatim || '').match(/\b(1[5-9]\d{2}|20\d{2})\b/)?.[1]
+  const c = TREE_COLORS[isFocal ? 'focal' : role] || TREE_COLORS.sibling
   return (
     <div onClick={isFocal ? undefined : onClick} title={isFocal ? name : `View ${name}`} style={{
       width: 124, padding: '7px 9px', borderRadius: 'var(--border-radius-md)', flexShrink: 0,
-      border: isFocal ? '1.5px solid var(--color-border-info)' : '0.5px solid var(--color-border-tertiary)',
-      background: isFocal ? 'var(--color-background-info)' : 'var(--color-background-primary)',
+      border: c.border,
+      background: c.bg,
       cursor: isFocal ? 'default' : 'pointer',
     }}>
-      <p style={{ fontSize: 11, fontWeight: isFocal ? 600 : 500, margin: '0 0 2px', lineHeight: 1.3,
-        color: isFocal ? 'var(--color-text-info)' : 'var(--color-text-primary)',
+      <p style={{ fontSize: 11, fontWeight: c.weight, margin: '0 0 2px', lineHeight: 1.3,
+        color: c.text,
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</p>
       {person.maiden_name && person.maiden_name !== person.last_name && (
         <p style={{ fontSize: 9, color: 'var(--color-text-secondary)', margin: '0 0 2px', lineHeight: 1,
@@ -1067,7 +1076,7 @@ export default function PersonView({ onBack }) {
                           return (
                             <div key={rel.relative_deceased_id} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
                               {i > 0 && <div style={{ width: 1, background: 'var(--color-border-tertiary)', alignSelf: 'stretch', margin: '4px 2px' }} />}
-                              {gps.map(gp => <TreeBox key={gp.deceased_id} person={gp} onClick={() => loadPerson(gp)} />)}
+                              {gps.map(gp => <TreeBox key={gp.deceased_id} person={gp} role="ancestor" onClick={() => loadPerson(gp)} />)}
                             </div>
                           )
                         })}
@@ -1081,7 +1090,7 @@ export default function PersonView({ onBack }) {
                     {kinship.filter(k => k.relationship_type === 'child').length > 0 && (<>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
                         {kinship.filter(k => k.relationship_type === 'child').map(rel => (
-                          <TreeBox key={rel.relative_deceased_id} person={rel.relative} onClick={() => rel.relative && loadPerson(rel.relative)} />
+                          <TreeBox key={rel.relative_deceased_id} person={rel.relative} role="ancestor" onClick={() => rel.relative && loadPerson(rel.relative)} />
                         ))}
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'center', height: 14 }}>
@@ -1099,7 +1108,7 @@ export default function PersonView({ onBack }) {
                       }} />
                       {kinship.filter(k => k.relationship_type === 'spouse').map((rel, i) => (<>
                         {i === 0 && <span key="dash" style={{ fontSize: 14, color: 'var(--color-text-tertiary)' }}>—</span>}
-                        <TreeBox key={rel.relative_deceased_id} person={rel.relative} onClick={() => rel.relative && loadPerson(rel.relative)} />
+                        <TreeBox key={rel.relative_deceased_id} person={rel.relative} role="spouse" onClick={() => rel.relative && loadPerson(rel.relative)} />
                       </>))}
                     </div>
 
@@ -1134,6 +1143,7 @@ export default function PersonView({ onBack }) {
                                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
                                   {g.kids.map(rel => (
                                     <TreeBox key={rel.relative_deceased_id} person={rel.relative}
+                                      role="descendant"
                                       childCount={childDescendantCounts[rel.relative_deceased_id] || 0}
                                       onClick={() => rel.relative && loadPerson(rel.relative)} />
                                   ))}
@@ -1146,6 +1156,7 @@ export default function PersonView({ onBack }) {
                                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
                                   {unattributed.map(rel => (
                                     <TreeBox key={rel.relative_deceased_id} person={rel.relative}
+                                      role="descendant"
                                       childCount={childDescendantCounts[rel.relative_deceased_id] || 0}
                                       onClick={() => rel.relative && loadPerson(rel.relative)} />
                                   ))}
@@ -1157,6 +1168,7 @@ export default function PersonView({ onBack }) {
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
                             {children.map(rel => (
                               <TreeBox key={rel.relative_deceased_id} person={rel.relative}
+                                role="descendant"
                                 childCount={childDescendantCounts[rel.relative_deceased_id] || 0}
                                 onClick={() => rel.relative && loadPerson(rel.relative)} />
                             ))}
@@ -1173,6 +1185,7 @@ export default function PersonView({ onBack }) {
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
                         {[...derivedSiblings].sort((a, b) => (a.date_of_birth_parsed || '').localeCompare(b.date_of_birth_parsed || '')).map(sib => (
                           <TreeBox key={sib.deceased_id} person={sib}
+                            role="sibling"
                             childCount={childDescendantCounts[sib.deceased_id] || 0}
                             onClick={() => loadPerson(sib)} />
                         ))}
