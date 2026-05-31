@@ -492,6 +492,16 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     }))
   }
 
+  const markAsNewRecord = () => {
+    setStoneMatrix(prev => ({
+      ...prev,
+      people: prev.people.map((p, i) =>
+        i === matchingIndex ? { ...p, matchStatus: 'new' } : p
+      )
+    }))
+    nextPerson()
+  }
+
   const nextPerson = () => {
     const nextIndex = matchingIndex + 1
     if (nextIndex < stoneMatrix.people.length) {
@@ -542,6 +552,33 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
   const saveStone = async () => {
     setSaving(true)
     try {
+      // 0. Pre-create deceased records for field-discovered persons (matchStatus === 'new')
+      let resolvedPeople = [...stoneMatrix.people]
+      for (let i = 0; i < resolvedPeople.length; i++) {
+        const p = resolvedPeople[i]
+        if (p.matchStatus !== 'new') continue
+        const parts = (p.correctedName || '').trim().split(/\s+/)
+        const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0]
+        const lastName  = parts.length > 1 ? parts[parts.length - 1] : null
+        const { data: newRec, error } = await supabase.from('deceased').insert({
+          first_name: firstName,
+          last_name: lastName,
+          maiden_name: p.geminiData.maiden_name || null,
+          date_of_birth_verbatim: p.geminiData.date_of_birth_verbatim || null,
+          date_of_death_verbatim: p.geminiData.date_of_death_verbatim || null,
+          cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+          notes: 'Field-catalogued. Requires curation in Person Research.',
+        }).select().single()
+        if (!error && newRec) {
+          resolvedPeople[i] = { ...p, matchedRecord: newRec }
+          await supabase.from('activity_log').insert({
+            user_id: session.user.id, action: 'new_record_created', entity_type: 'deceased',
+            entity_id: newRec.deceased_id, cemetery_id: 'd8bd1f88-cdde-4ef2-a448-5ab04d2d8107',
+            metadata: { full_name: p.correctedName, source: 'field_capture', notes: 'stub from field tool' }
+          })
+        } else console.warn('New record insert failed:', error?.message)
+      }
+
       // 1. Upload photo
       const b64 = imageBase64Ref.current
       const byteString = atob(b64)
@@ -562,8 +599,8 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       const { data: { publicUrl } } = supabase.storage.from('Stone_Images').getPublicUrl(fileName)
 
       // 2. Create stone record
-      const occupants = stoneMatrix.people.filter(p => p.role === 'occupant')
-      const inscriptionText = stoneMatrix.people.map(p =>
+      const occupants = resolvedPeople.filter(p => p.role === 'occupant')
+      const inscriptionText = resolvedPeople.map(p =>
         [p.correctedName, p.geminiData.date_of_birth_verbatim, p.geminiData.date_of_death_verbatim,
           ...(p.geminiData.kinship_hints || [])].filter(Boolean).join(' ')
       ).join(' | ')
@@ -590,7 +627,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
       })
 
       // 4. Link matched people to stone
-      for (const person of stoneMatrix.people) {
+      for (const person of resolvedPeople) {
         if (person.matchedRecord) {
           await supabase.from('stone_deceased').insert({
             stone_id: stoneData.stone_id,
@@ -651,7 +688,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
         return stub.deceased_id
       }
 
-      for (const person of stoneMatrix.people) {
+      for (const person of resolvedPeople) {
         if (!person.matchedRecord) continue
         const personId = person.matchedRecord.deceased_id
         const personLabel = person.correctedName || person.matchedRecord.full_name || 'unknown'
@@ -662,7 +699,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
             await saveKinshipPair(personId, rel.objectDeceasedId, rel.type, rel.hint)
           } else if (rel.objectIndex != null) {
             // Person on same stone — both matched
-            const objectPerson = stoneMatrix.people[rel.objectIndex]
+            const objectPerson = resolvedPeople[rel.objectIndex]
             if (!objectPerson?.matchedRecord) continue
             await saveKinshipPair(personId, objectPerson.matchedRecord.deceased_id, rel.type, rel.hint)
           } else if (rel.objectName && rel.objectName !== 'Unknown') {
@@ -680,7 +717,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
           const rawName = (rel.relatedName || rel.rawNames?.[0] || '').trim().toLowerCase()
           if (!rawName) continue
           // Try to find this person on the stone
-          const sameStoneMatch = stoneMatrix.people.find((op, oi) =>
+          const sameStoneMatch = resolvedPeople.find((op, oi) =>
             op !== person && op.matchedRecord &&
             (op.correctedName || '').toLowerCase().split(/\s+/).some(w => w.length > 2 && rawName.includes(w))
           )
@@ -1247,6 +1284,9 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
               </p>
               <p className="text-gray-300 text-xs">
                 {stoneMatrix.people.filter(p => p.matchStatus === 'matched').length} matched •{' '}
+                {stoneMatrix.people.filter(p => p.matchStatus === 'new').length > 0 && (
+                  <>{stoneMatrix.people.filter(p => p.matchStatus === 'new').length} new record •{' '}</>
+                )}
                 {stoneMatrix.people.filter(p => p.matchStatus === 'skipped').length} skipped •{' '}
                 {stoneMatrix.people.filter(p => p.matchStatus === 'pending').length} pending
               </p>
@@ -1345,14 +1385,12 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     <>
       <button onClick={() => { skipMatch(); nextPerson() }} disabled={saving}
         className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white py-3 rounded-lg text-sm">
-        {saving ? '⏳ Saving...' : 'Skip — no match'}
+        Skip — no match
       </button>
-      {matchingIndex + 1 >= stoneMatrix.people.length && (
-        <button onClick={saveStone} disabled={saving}
-          className="flex-1 bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-600 text-white font-bold py-3 rounded-lg text-sm">
-          {saving ? '⏳ Saving...' : '💾 Save Anyway'}
-        </button>
-      )}
+      <button onClick={markAsNewRecord} disabled={saving}
+        className="flex-1 bg-amber-700 hover:bg-amber-600 disabled:bg-gray-600 text-white font-bold py-3 rounded-lg text-sm">
+        + New record
+      </button>
     </>
   ) : (
     <p className="text-gray-400 text-sm py-3">Search above to find a match</p>
