@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { supabase } from './supabaseClient'
 import Login from './Login'
 import Home from './Home'
@@ -12,7 +12,7 @@ import MallmannImport from './admin/MallmannImport'
 import DuplicateScan from './admin/DuplicateScan'
 import UnmatchedStones from './admin/UnmatchedStones'
 import WhiteImport from './admin/WhiteImport'
-import NetworkView from './admin/NetworkView'
+const NetworkView = lazy(() => import('./admin/NetworkView'))
 
 function App() {
   const [session, setSession] = useState(null)
@@ -163,10 +163,12 @@ function App() {
         <WhiteImport onBack={() => setPage('admin')} />
       )}
       {page === 'admin_network' && canAccessTools && (
-        <NetworkView
-          onBack={() => setPage('admin')}
-          onOpenPerson={() => setPage('admin_review')}
-        />
+        <Suspense fallback={<div style={{ color: '#94a3b8', padding: '2rem', textAlign: 'center' }}>Loading graph…</div>}>
+          <NetworkView
+            onBack={() => setPage('admin')}
+            onOpenPerson={() => setPage('admin_review')}
+          />
+        </Suspense>
       )}
     </div>
   )
