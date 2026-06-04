@@ -9,6 +9,14 @@ import { mergePersons } from '../utils/mergePersons'
 import { REL_LABEL, INVERSE_REL } from '../constants'
 
 const CONFIDENCE_LEVELS = ['confirmed', 'probable', 'possible', 'uncertain']
+
+const PATRIOT_AFFILIATIONS = [
+  { value: 'association_papers', label: 'Signed Association Papers', color: '#6ee7b7', bg: 'rgba(5,150,105,0.18)' },
+  { value: 'ny_militia',         label: 'NY Militia',                color: '#6ee7b7', bg: 'rgba(5,150,105,0.18)' },
+  { value: 'continental_army',   label: 'Continental Army',          color: '#6ee7b7', bg: 'rgba(5,150,105,0.18)' },
+  { value: 'culper_ring',        label: 'Culper Ring',               color: '#93c5fd', bg: 'rgba(37,99,235,0.18)' },
+  { value: 'loyalist',           label: 'Crown Loyalist',            color: '#fca5a5', bg: 'rgba(185,28,28,0.18)' },
+]
 const SOURCE_TYPES = ['stone_inscription', 'document', 'church_record', 'census', 'colonial_document', 'family_record', 'ai_extracted', 'volunteer', 'admin']
 const SOURCE_LABEL = { stone_inscription: 'Stone inscription', document: 'Document', church_record: 'Church record', census: 'Census', colonial_document: 'Colonial document', family_record: 'Family record', ai_extracted: 'AI extracted', volunteer: 'Volunteer', admin: 'Admin' }
 
@@ -88,7 +96,8 @@ const TREE_COLORS = {
 
 function TreeBox({ person, isFocal = false, role = 'sibling', childCount = 0, onClick }) {
   if (!person) return null
-  const name = person.full_name || [person.first_name, person.last_name].filter(Boolean).join(' ') || '?'
+  const baseName = person.full_name || [person.first_name, person.last_name].filter(Boolean).join(' ')
+  const name = [person.title, baseName, person.generation_suffix].filter(Boolean).join(' ') || '?'
   const bYear = (person.date_of_birth_verbatim || '').match(/\b(1[5-9]\d{2}|20\d{2})\b/)?.[1]
   const dYear = (person.date_of_death_verbatim || '').match(/\b(1[5-9]\d{2}|20\d{2})\b/)?.[1]
   const c = TREE_COLORS[isFocal ? 'focal' : role] || TREE_COLORS.sibling
@@ -361,12 +370,15 @@ export default function PersonView({ onBack }) {
     const { error } = await supabase
       .from('deceased')
       .update({
+        title: editForm.title || null,
         first_name: editForm.first_name,
         middle_name: editForm.middle_name,
         last_name: editForm.last_name,
+        generation_suffix: editForm.generation_suffix || null,
         maiden_name: editForm.maiden_name,
         date_of_birth_verbatim: editForm.date_of_birth_verbatim,
         date_of_death_verbatim: editForm.date_of_death_verbatim,
+        patriot_affiliations: editForm.patriot_affiliations || [],
         notes: editForm.notes,
         biography: editForm.biography,
       })
@@ -968,9 +980,11 @@ export default function PersonView({ onBack }) {
                     <Avatar name={selected.first_name + ' ' + selected.last_name} size={48} color="info" />
                     <div>
                       <p style={{ fontWeight: 500, fontSize: 20, margin: 0 }}>
+                        {selected.title && <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--color-text-secondary,#94a3b8)', marginRight: 6 }}>{selected.title}</span>}
                         {[selected.first_name, selected.middle_name, selected.last_name].filter(Boolean).join(' ')}
+                        {selected.generation_suffix && <span style={{ fontSize: 15, fontWeight: 400, color: 'var(--color-text-secondary,#94a3b8)' }}> {selected.generation_suffix}</span>}
                         {selected.maiden_name && selected.maiden_name !== selected.last_name &&
-                          <span style={{ fontSize: 15, fontWeight: 400, color: 'var(--color-text-secondary)' }}> (née {selected.maiden_name})</span>}
+                          <span style={{ fontSize: 15, fontWeight: 400, color: 'var(--color-text-secondary,#94a3b8)' }}> (née {selected.maiden_name})</span>}
                       </p>
                       <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>
                         {[selected.date_of_birth_verbatim && 'b. ' + fmtDate(selected.date_of_birth_verbatim, selected.date_of_birth_parsed),
@@ -994,13 +1008,21 @@ export default function PersonView({ onBack }) {
 
                 {editingPerson ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, borderTop: '0.5px solid var(--color-border-tertiary)', paddingTop: 14 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 1fr 1fr 80px', gap: 8 }}>
+                      <div>
+                        <p style={fieldLabel}>title</p>
+                        <input value={editForm.title || ''} onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))} placeholder="Judge, Capt…" />
+                      </div>
                       {['first_name', 'middle_name', 'last_name'].map(f => (
                         <div key={f}>
                           <p style={fieldLabel}>{f.replace('_', ' ')}</p>
                           <input value={editForm[f] || ''} onChange={e => setEditForm(p => ({ ...p, [f]: e.target.value }))} />
                         </div>
                       ))}
+                      <div>
+                        <p style={fieldLabel}>suffix</p>
+                        <input value={editForm.generation_suffix || ''} onChange={e => setEditForm(p => ({ ...p, generation_suffix: e.target.value }))} placeholder="II, III…" />
+                      </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                       <div>
@@ -1014,6 +1036,31 @@ export default function PersonView({ onBack }) {
                       <div>
                         <p style={fieldLabel}>death date</p>
                         <input value={editForm.date_of_death_verbatim || ''} onChange={e => setEditForm(p => ({ ...p, date_of_death_verbatim: e.target.value }))} />
+                      </div>
+                    </div>
+                    <div>
+                      <p style={fieldLabel}>patriot affiliations</p>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                        {PATRIOT_AFFILIATIONS.map(a => {
+                          const checked = (editForm.patriot_affiliations || []).includes(a.value)
+                          return (
+                            <label key={a.value} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer',
+                              fontSize: 12, padding: '3px 10px', borderRadius: 99,
+                              border: `0.5px solid ${checked ? a.color : 'var(--color-border-tertiary,#475569)'}`,
+                              background: checked ? a.bg : 'transparent',
+                              color: checked ? a.color : 'var(--color-text-secondary,#94a3b8)',
+                            }}>
+                              <input type="checkbox" checked={checked} style={{ display: 'none' }}
+                                onChange={e => setEditForm(p => ({
+                                  ...p,
+                                  patriot_affiliations: e.target.checked
+                                    ? [...(p.patriot_affiliations || []), a.value]
+                                    : (p.patriot_affiliations || []).filter(v => v !== a.value)
+                                }))} />
+                              {a.label}
+                            </label>
+                          )
+                        })}
                       </div>
                     </div>
                     <div>
@@ -1039,6 +1086,23 @@ export default function PersonView({ onBack }) {
                       <div>
                         <p style={fieldLabel}>church event</p>
                         <p style={fieldValue}>{selected.church_event_type}{selected.church_event_date_verbatim ? ' — ' + selected.church_event_date_verbatim : ''}</p>
+                      </div>
+                    )}
+                    {selected.patriot_affiliations?.length > 0 && (
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <p style={fieldLabel}>patriot affiliations</p>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                          {selected.patriot_affiliations.map(v => {
+                            const a = PATRIOT_AFFILIATIONS.find(x => x.value === v)
+                            return (
+                              <span key={v} style={{ fontSize: 12, padding: '2px 10px', borderRadius: 99,
+                                border: `0.5px solid ${a?.color || '#94a3b8'}`,
+                                background: a?.bg || 'transparent',
+                                color: a?.color || '#94a3b8',
+                              }}>{a?.label || v}</span>
+                            )
+                          })}
+                        </div>
                       </div>
                     )}
                     {selected.biography && (
