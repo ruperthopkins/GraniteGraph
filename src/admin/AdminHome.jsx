@@ -43,6 +43,14 @@ const ALL_TOOLS = [
     roles: ['admin'],
   },
   {
+    id: 'network',
+    icon: '🕸️',
+    title: 'Community Graph',
+    description: 'Explore the kinship network — ego networks, family clusters, patriot affiliation overlay',
+    status: 'active',
+    roles: ['admin', 'researcher'],
+  },
+  {
     id: 'stones',
     icon: '🪨',
     title: 'Unmatched Stones',

@@ -12,6 +12,7 @@ import MallmannImport from './admin/MallmannImport'
 import DuplicateScan from './admin/DuplicateScan'
 import UnmatchedStones from './admin/UnmatchedStones'
 import WhiteImport from './admin/WhiteImport'
+import NetworkView from './admin/NetworkView'
 
 function App() {
   const [session, setSession] = useState(null)
@@ -160,6 +161,12 @@ function App() {
       )}
       {page === 'admin_white' && isAdmin && (
         <WhiteImport onBack={() => setPage('admin')} />
+      )}
+      {page === 'admin_network' && canAccessTools && (
+        <NetworkView
+          onBack={() => setPage('admin')}
+          onOpenPerson={() => setPage('admin_review')}
+        />
       )}
     </div>
   )
