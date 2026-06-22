@@ -12,6 +12,9 @@ import MallmannImport from './admin/MallmannImport'
 import DuplicateScan from './admin/DuplicateScan'
 import UnmatchedStones from './admin/UnmatchedStones'
 import WhiteImport from './admin/WhiteImport'
+import GpsImport from './admin/GpsImport'
+import PhotoImport from './admin/PhotoImport'
+import StoneQA from './admin/StoneQA'
 const NetworkView = lazy(() => import('./admin/NetworkView'))
 
 function App() {
@@ -161,6 +164,15 @@ function App() {
       )}
       {page === 'admin_white' && isAdmin && (
         <WhiteImport onBack={() => setPage('admin')} />
+      )}
+      {page === 'admin_photo_import' && isAdmin && (
+        <PhotoImport onBack={() => setPage('admin')} />
+      )}
+      {page === 'admin_gps_import' && isAdmin && (
+        <GpsImport onBack={() => setPage('admin')} />
+      )}
+      {page === 'admin_stone_qa' && canAccessTools && (
+        <StoneQA onBack={() => setPage('admin')} />
       )}
       {page === 'admin_network' && canAccessTools && (
         <Suspense fallback={<div style={{ color: '#94a3b8', padding: '2rem', textAlign: 'center' }}>Loading graph…</div>}>

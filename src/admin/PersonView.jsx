@@ -474,10 +474,18 @@ export default function PersonView({ onBack }) {
   }
 
   const deletePhoto = async (photo) => {
-    if (!window.confirm('Delete this photo? This cannot be undone.')) return
+    const photosOnSameStone = allPhotos.filter(p => p.stone_id === photo.stone_id)
+    const isLastPhoto = photosOnSameStone.length === 1
+    const msg = isLastPhoto
+      ? 'Delete this photo? It is the only photo on this stone — the inscription text will also be cleared, returning it to the QA queue. This cannot be undone.'
+      : 'Delete this photo? This cannot be undone.'
+    if (!window.confirm(msg)) return
     setDeletingPhotoUrl(photo.photo_url)
     const identifier = photo.id ? { id: photo.id } : { photo_url: photo.photo_url }
     await supabase.from('stone_photos').delete().match(identifier)
+    if (isLastPhoto) {
+      await supabase.from('stones').update({ inscription_text: null }).eq('stone_id', photo.stone_id)
+    }
     await refreshStoneLinks(selected.deceased_id)
     setPhotoIndex(0)
     setDeletingPhotoUrl(null)
