@@ -82,7 +82,7 @@ export default function StoneQA({ onBack }) {
 
       const { data: photos, error: photosErr } = await supabase
         .from('stone_photos')
-        .select('id, stone_id, photo_url, is_primary, stones(inscription_text, stone_condition)')
+        .select('photo_id, stone_id, photo_url, is_primary, stones(inscription_text, stone_condition)')
         .order('stone_id')
         .order('is_primary', { ascending: false })
       if (photosErr) throw photosErr
@@ -94,7 +94,7 @@ export default function StoneQA({ onBack }) {
         seen.add(p.stone_id)
         entries.push({
           stone_id: p.stone_id,
-          photo_id: p.id,
+          photo_id: p.photo_id,
           photo_url: p.photo_url,
           inscription_text: p.stones?.inscription_text,
           stone_condition: p.stones?.stone_condition,
