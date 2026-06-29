@@ -26,23 +26,6 @@ function Header({ title, subtitle, onBack }) {
   )
 }
 
-function Chip({ label, value, color }) {
-  return (
-    <div style={{ background: 'var(--color-background-secondary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 'var(--border-radius-sm)', padding: '6px 12px' }}>
-      <span style={{ fontSize: 20, fontWeight: 700, color }}>{value}</span>
-      <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginLeft: 6 }}>{label}</span>
-    </div>
-  )
-}
-
-function SummaryRow({ label, value, danger }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-      <span style={{ fontSize: 13, color: danger ? 'var(--color-text-danger)' : 'var(--color-text-secondary)' }}>{label}</span>
-      <strong style={{ fontSize: 13, color: danger ? 'var(--color-text-danger)' : 'var(--color-text-primary)' }}>{value}</strong>
-    </div>
-  )
-}
 
 export default function StoneQA({ onBack }) {
   const [phase, setPhase] = useState('queue')
