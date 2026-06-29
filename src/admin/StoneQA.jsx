@@ -6,11 +6,27 @@ import { useStoneMatrix } from '../hooks/useStoneMatrix'
 async function urlToBase64(url) {
   const resp = await fetch(url)
   const blob = await resp.blob()
-  return new Promise((resolve, reject) => {
+  const dataUrl = await new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = () => resolve(reader.result.split(',')[1])
+    reader.onload = () => resolve(reader.result)
     reader.onerror = reject
     reader.readAsDataURL(blob)
+  })
+  // Resize to max 1024px before sending — Vercel's 4.5 MB request body limit
+  // is easily exceeded by full-resolution QField photos (3–12 MB).
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      const maxSize = 1024
+      let w = img.width, h = img.height
+      if (w > h && w > maxSize) { h = (h * maxSize) / w; w = maxSize }
+      else if (h > maxSize) { w = (w * maxSize) / h; h = maxSize }
+      canvas.width = w; canvas.height = h
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+      resolve(canvas.toDataURL('image/jpeg', 0.8).split(',')[1])
+    }
+    img.src = dataUrl
   })
 }
 
