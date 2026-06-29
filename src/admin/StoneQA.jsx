@@ -1,35 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { CEMETERY_ID, REL_LABEL, INVERSE_REL } from '../constants'
-
-// ── Kinship hint parser ───────────────────────────────────────────────────────
-function parseKinshipHints(hints) {
-  if (!hints?.length) return []
-  const out = []
-  hints.forEach(hint => {
-    const h = hint.trim()
-    if (/\b(his|her)\s+wife\b/i.test(h)) { out.push({ type: 'spouse', rawNames: [], hint, implicit: true }); return }
-    const spouseM = h.match(/\b(?:wife|husband|spouse|consort)\s+of\s+(.+)/i)
-    if (spouseM) { out.push({ type: 'spouse', rawNames: [spouseM[1].trim().replace(/\.$/, '')], hint, implicit: false }); return }
-    const childM = h.match(/\b(?:son|daughter|child)\s+of\s+(.+)/i)
-    if (childM) {
-      const names = childM[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
-      out.push({ type: 'child', rawNames: names, hint, implicit: false }); return
-    }
-    if (/\btheir\s+(?:son|daughter|child)\b/i.test(h)) { out.push({ type: 'child', rawNames: [], hint, implicit: true, theirChild: true }); return }
-    const parentM = h.match(/\b(?:father|mother|parent)\s+of\s+(.+)/i)
-    if (parentM) {
-      const names = parentM[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
-      out.push({ type: 'parent', rawNames: names, hint, implicit: false }); return
-    }
-    const sibM = h.match(/\b(?:brother|sister|sibling)\s+of\s+(.+)/i)
-    if (sibM) {
-      const names = sibM[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
-      out.push({ type: 'sibling', rawNames: names, hint, implicit: false })
-    }
-  })
-  return out
-}
+import { useStoneMatrix } from '../hooks/useStoneMatrix'
 
 async function urlToBase64(url) {
   const resp = await fetch(url)
@@ -54,21 +26,45 @@ function Header({ title, subtitle, onBack }) {
   )
 }
 
+function Chip({ label, value, color }) {
+  return (
+    <div style={{ background: 'var(--color-background-secondary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 'var(--border-radius-sm)', padding: '6px 12px' }}>
+      <span style={{ fontSize: 20, fontWeight: 700, color }}>{value}</span>
+      <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginLeft: 6 }}>{label}</span>
+    </div>
+  )
+}
+
+function SummaryRow({ label, value, danger }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+      <span style={{ fontSize: 13, color: danger ? 'var(--color-text-danger)' : 'var(--color-text-secondary)' }}>{label}</span>
+      <strong style={{ fontSize: 13, color: danger ? 'var(--color-text-danger)' : 'var(--color-text-primary)' }}>{value}</strong>
+    </div>
+  )
+}
+
 export default function StoneQA({ onBack }) {
   const [phase, setPhase] = useState('queue')
   const [queue, setQueue] = useState([])
   const [loading, setLoading] = useState(false)
   const [currentEntry, setCurrentEntry] = useState(null)
-  const [stoneMatrix, setStoneMatrix] = useState(null)
-  const [matchingIndex, setMatchingIndex] = useState(0)
-  const [matchSearchQuery, setMatchSearchQuery] = useState('')
-  const [matchSearchResults, setMatchSearchResults] = useState([])
-  const [matchSearching, setMatchSearching] = useState(false)
-  const [matchSearchAttempted, setMatchSearchAttempted] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
-  const autoSearchTimer = useRef(null)
-  const stoneMatrixRef = useRef(null)
+
+  const {
+    stoneMatrix, setStoneMatrix,
+    matchingIndex,
+    matchSearchQuery, setMatchSearchQuery,
+    matchSearchResults, setMatchSearchResults,
+    matchSearching, matchSearchAttempted,
+    initMatrix, resetMatrix, prepareMatch,
+    updatePersonRole, updateCorrectedName, updateRelField,
+    searchRelatedPerson,
+    confirmRelationship, skipRelationship,
+    confirmRelationshipExternal, confirmRelationshipNameOnly,
+    handleMatchSearch, selectMatch, advancePerson, skipMatch, markAsNewRecord,
+  } = useStoneMatrix()
 
   useEffect(() => { loadQueue() }, [])
 
@@ -109,11 +105,7 @@ export default function StoneQA({ onBack }) {
 
   const openStone = (entry) => {
     setCurrentEntry(entry)
-    setStoneMatrix(null)
-    setMatchingIndex(0)
-    setMatchSearchQuery('')
-    setMatchSearchResults([])
-    setMatchSearchAttempted(false)
+    resetMatrix()
     setPhase('photo')
   }
 
@@ -134,23 +126,11 @@ export default function StoneQA({ onBack }) {
       const extracted = JSON.parse(
         geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim()
       )
-      const people = (extracted.people || []).map((p, index) => ({
-        index,
-        geminiData: p,
-        correctedName: [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(' '),
-        role: 'occupant',
-        relationships: parseKinshipHints(p.kinship_hints || []),
-        confirmedRelationships: [],
-        matchedRecord: null,
-        matchStatus: 'pending',
-      }))
-      const matrix = {
-        stone_condition: extracted.stone_condition || currentEntry.stone_condition || 'fair',
-        stone_notes: extracted.stone_notes || '',
-        people,
-      }
-      stoneMatrixRef.current = matrix
-      setStoneMatrix(matrix)
+      initMatrix(
+        extracted.people || [],
+        extracted.stone_condition || currentEntry.stone_condition,
+        extracted.stone_notes,
+      )
       setPhase('matrix')
     } catch (err) {
       setError(err.message)
@@ -158,200 +138,9 @@ export default function StoneQA({ onBack }) {
     setLoading(false)
   }
 
-  // ── Matrix handlers ───────────────────────────────────────────────────────
-  const updatePersonRole = (index, role) =>
-    setStoneMatrix(prev => ({ ...prev, people: prev.people.map((p, i) => i === index ? { ...p, role } : p) }))
-
-  const updateCorrectedName = (index, name) => {
-    setStoneMatrix(prev => {
-      const next = { ...prev, people: prev.people.map((p, i) => i === index ? { ...p, correctedName: name } : p) }
-      stoneMatrixRef.current = next
-      return next
-    })
-    if (autoSearchTimer.current) clearTimeout(autoSearchTimer.current)
-    autoSearchTimer.current = setTimeout(() => preSearchPerson(index, name), 800)
-  }
-
-  const preSearchPerson = async (index, name) => {
-    if (!name.trim() || name.trim().length < 3) return
-    const terms = name.trim().split(/[\s,]+/).filter(Boolean)
-    let q = supabase.from('v_deceased_search').select('*')
-    if (terms.length === 1) {
-      q = q.or(`first_name.ilike.*${terms[0]}*,last_name.ilike.*${terms[0]}*,maiden_name.ilike.*${terms[0]}*`)
-    } else {
-      q = q.ilike('last_name', `%${terms[terms.length - 1]}%`)
-      terms.slice(0, -1).forEach(t => q = q.or(`first_name.ilike.%${t}%,middle_name.ilike.%${t}%,maiden_name.ilike.%${t}%`))
-    }
-    const yr = (stoneMatrixRef.current?.people?.[index]?.geminiData?.date_of_death_verbatim || '').match(/\d{4}/)?.[0]
-    if (yr) {
-      const y = parseInt(yr)
-      if (y >= 1700 && y <= 2030)
-        q = q.or(`date_of_death.is.null,and(date_of_death.gte.${y - 15}-01-01,date_of_death.lte.${y + 15}-12-31)`)
-    }
-    const { data } = await q.order('last_name').order('first_name').limit(20)
-    if (data) setStoneMatrix(prev => {
-      const next = { ...prev, people: prev.people.map((p, i) => i === index ? { ...p, preSearchResults: data } : p) }
-      stoneMatrixRef.current = next
-      return next
-    })
-  }
-
-  const updateRelField = (pIndex, rIndex, field, value) =>
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) => i !== pIndex ? p : {
-        ...p, relationships: p.relationships.map((r, ri) => ri !== rIndex ? r : { ...r, [field]: value })
-      })
-    }))
-
-  const searchRelatedPerson = async (pIndex, rIndex, name) => {
-    if (!name.trim()) return
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) => i !== pIndex ? p : {
-        ...p, relationships: p.relationships.map((r, ri) => ri !== rIndex ? r : { ...r, relSearching: true, relSearchResults: null })
-      })
-    }))
-    const terms = name.trim().split(/\s+/)
-    let q = supabase.from('v_deceased_search').select('*')
-    if (terms.length === 1) {
-      q = q.or(`first_name.ilike.*${terms[0]}*,last_name.ilike.*${terms[0]}*,maiden_name.ilike.*${terms[0]}*`)
-    } else {
-      q = q.ilike('last_name', `%${terms[terms.length - 1]}%`)
-      terms.slice(0, -1).forEach(t => q = q.or(`first_name.ilike.%${t}%,middle_name.ilike.%${t}%,maiden_name.ilike.%${t}%`))
-    }
-    const { data } = await q.limit(5)
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) => i !== pIndex ? p : {
-        ...p, relationships: p.relationships.map((r, ri) => ri !== rIndex ? r : { ...r, relSearching: false, relSearchResults: data || [] })
-      })
-    }))
-  }
-
-  const confirmRelationship = (personIndex, rel, objectIndex) =>
-    setStoneMatrix(prev => {
-      const people = [...prev.people]
-      const person = { ...people[personIndex] }
-      person.confirmedRelationships = [...person.confirmedRelationships, {
-        type: rel.type, hint: rel.hint, objectIndex,
-        objectName: people[objectIndex]?.correctedName || rel.rawNames[0] || 'Unknown'
-      }]
-      people[personIndex] = person
-      return { ...prev, people }
-    })
-
-  const skipRelationship = (personIndex, relIndex) =>
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) => i !== personIndex ? p : {
-        ...p, relationships: p.relationships.filter((_, ri) => ri !== relIndex)
-      })
-    }))
-
-  const confirmRelationshipExternal = (pIndex, rIndex, rel, record) => {
-    const objectName = record.full_name || [record.first_name, record.last_name].filter(Boolean).join(' ')
-    setStoneMatrix(prev => {
-      const people = [...prev.people]
-      const person = { ...people[pIndex] }
-      const rels = [...person.relationships]; rels.splice(rIndex, 1)
-      person.relationships = rels
-      person.confirmedRelationships = [...person.confirmedRelationships,
-        { type: rel.type, hint: rel.hint, objectIndex: null, objectDeceasedId: record.deceased_id, objectName }]
-      people[pIndex] = person
-      return { ...prev, people }
-    })
-  }
-
-  const confirmRelationshipNameOnly = (pIndex, rIndex, rel) => {
-    const objectName = rel.relatedName || rel.rawNames[0] || 'Unknown'
-    setStoneMatrix(prev => {
-      const people = [...prev.people]
-      const person = { ...people[pIndex] }
-      const rels = [...person.relationships]; rels.splice(rIndex, 1)
-      person.relationships = rels
-      person.confirmedRelationships = [...person.confirmedRelationships,
-        { type: rel.type, hint: rel.hint, objectIndex: null, objectDeceasedId: null, objectName }]
-      people[pIndex] = person
-      return { ...prev, people }
-    })
-  }
-
-  // ── Match handlers ────────────────────────────────────────────────────────
-  const cleanName = (name) =>
-    name.replace(/\b[A-Z]\.\s*/g, '').replace(/\([^)]*\)/g, '').replace(/[.,;:'"]/g, '').replace(/\s+/g, ' ').trim()
-
   const proceedToMatch = () => {
-    supabase.from('v_deceased_search').select('deceased_id').limit(1) // warm connection
-    setMatchingIndex(0)
-    const first = stoneMatrix?.people?.[0]
-    if (first) {
-      setMatchSearchQuery(cleanName(first.correctedName))
-      setMatchSearchResults(first.preSearchResults || [])
-      setMatchSearchAttempted(!!first.preSearchResults)
-    }
+    prepareMatch()
     setPhase('match')
-  }
-
-  const handleMatchSearch = async (query) => {
-    if (!query.trim()) return
-    setMatchSearching(true); setMatchSearchResults([]); setMatchSearchAttempted(true)
-    const buildQ = () => {
-      const terms = query.trim().split(/[\s,]+/).filter(Boolean)
-      let q = supabase.from('v_deceased_search').select('*')
-      if (terms.length === 1) {
-        q = q.or(`first_name.ilike.*${terms[0]}*,last_name.ilike.*${terms[0]}*,maiden_name.ilike.*${terms[0]}*`)
-      } else {
-        q = q.ilike('last_name', `%${terms[terms.length - 1]}%`)
-        terms.slice(0, -1).forEach(t => q = q.or(`first_name.ilike.%${t}%,middle_name.ilike.%${t}%,maiden_name.ilike.%${t}%`))
-      }
-      const yr = (stoneMatrix?.people?.[matchingIndex]?.geminiData?.date_of_death_verbatim || '').match(/\d{4}/)?.[0]
-      if (yr) {
-        const y = parseInt(yr)
-        if (y >= 1700 && y <= 2030)
-          q = q.or(`date_of_death.is.null,and(date_of_death.gte.${y - 15}-01-01,date_of_death.lte.${y + 15}-12-31)`)
-      }
-      return q.order('last_name').order('first_name').limit(20)
-    }
-    let { data, error } = await buildQ()
-    if (error || !data) { await new Promise(r => setTimeout(r, 400)); ;({ data, error } = await buildQ()) }
-    if (!error) setMatchSearchResults(data || [])
-    setMatchSearching(false)
-  }
-
-  const selectMatch = (record) =>
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) => i === matchingIndex ? { ...p, matchedRecord: record, matchStatus: 'matched' } : p)
-    }))
-
-  const advancePerson = () => {
-    const next = matchingIndex + 1
-    if (next < stoneMatrix.people.length) {
-      setMatchingIndex(next)
-      const nextP = stoneMatrix.people[next]
-      setMatchSearchQuery(cleanName(nextP.correctedName))
-      setMatchSearchResults(nextP.preSearchResults || [])
-      setMatchSearchAttempted(!!nextP.preSearchResults)
-    } else {
-      setMatchingIndex(stoneMatrix.people.length) // sentinel: all done, show save button
-    }
-  }
-
-  const skipMatch = () => {
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) => i === matchingIndex ? { ...p, matchStatus: 'skipped' } : p)
-    }))
-    advancePerson()
-  }
-
-  const markAsNewRecord = () => {
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) => i === matchingIndex ? { ...p, matchStatus: 'new' } : p)
-    }))
-    advancePerson()
   }
 
   // ── Save ──────────────────────────────────────────────────────────────────
@@ -360,7 +149,6 @@ export default function StoneQA({ onBack }) {
     try {
       let resolvedPeople = [...stoneMatrix.people]
 
-      // Create new deceased records for unmatched people marked as new
       for (let i = 0; i < resolvedPeople.length; i++) {
         const p = resolvedPeople[i]
         if (p.matchStatus !== 'new') continue
@@ -378,7 +166,6 @@ export default function StoneQA({ onBack }) {
         if (newRec) resolvedPeople[i] = { ...p, matchedRecord: newRec }
       }
 
-      // Update stone record
       const inscriptionText = resolvedPeople.map(p =>
         [p.correctedName, p.geminiData.date_of_birth_verbatim, p.geminiData.date_of_death_verbatim,
           ...(p.geminiData.kinship_hints || [])].filter(Boolean).join(' ')
@@ -391,7 +178,6 @@ export default function StoneQA({ onBack }) {
         field_status: 'complete',
       }).eq('stone_id', currentEntry.stone_id)
 
-      // stone_deceased links
       for (const person of resolvedPeople) {
         if (!person.matchedRecord) continue
         await supabase.from('stone_deceased').insert({
@@ -407,7 +193,6 @@ export default function StoneQA({ onBack }) {
         }
       }
 
-      // Kinship
       const saveKinshipPair = async (aId, bId, type, hint) => {
         const inv = INVERSE_REL[type] || 'unknown'
         await Promise.all([
@@ -452,12 +237,42 @@ export default function StoneQA({ onBack }) {
 
       setQueue(prev => prev.filter(s => s.stone_id !== currentEntry.stone_id))
       setCurrentEntry(null)
-      setStoneMatrix(null)
+      resetMatrix()
       setPhase('queue')
     } catch (err) {
       alert('Error saving: ' + err.message)
     }
     setSaving(false)
+  }
+
+  // ── Status layer download ─────────────────────────────────────────────────
+  const downloadStatusLayer = async () => {
+    try {
+      const [{ data: photoedData }, { data: stones }] = await Promise.all([
+        supabase.from('stone_photos').select('stone_id'),
+        supabase.rpc('get_stones_with_coordinates'),
+      ])
+      const photoedIds = new Set((photoedData || []).map(r => r.stone_id))
+      const features = (stones || [])
+        .filter(s => photoedIds.has(s.stone_id) && s.lat != null && s.lng != null)
+        .map(s => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+          properties: { stone_id: s.stone_id, status: 'photographed' },
+        }))
+      const blob = new Blob(
+        [JSON.stringify({ type: 'FeatureCollection', features }, null, 2)],
+        { type: 'application/json' }
+      )
+      const a = Object.assign(document.createElement('a'), {
+        href: URL.createObjectURL(blob),
+        download: 'seaview_photographed.geojson',
+      })
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } catch (err) {
+      alert('Export failed: ' + err.message)
+    }
   }
 
   // ── Render: queue ─────────────────────────────────────────────────────────
@@ -522,7 +337,6 @@ export default function StoneQA({ onBack }) {
     <div style={{ minHeight: '100vh', background: 'var(--color-background-primary)', color: 'var(--color-text-primary)', paddingBottom: 100 }}>
       <Header title="Stone QA — Review" subtitle={`${stoneMatrix.people.length} person${stoneMatrix.people.length !== 1 ? 's' : ''} extracted`} onBack={() => setPhase('photo')} />
       <div style={{ maxWidth: 640, margin: '0 auto', padding: 16 }}>
-        {/* Thumbnail + condition */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
           <img src={currentEntry.photo_url} alt="" style={{ width: 72, height: 96, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
@@ -712,7 +526,6 @@ export default function StoneQA({ onBack }) {
         )}
 
         <div style={{ maxWidth: 640, margin: '0 auto', padding: 16 }}>
-          {/* Progress summary */}
           <div style={{ background: 'var(--color-background-secondary)', borderRadius: 8, padding: 12, marginBottom: 16, border: '0.5px solid var(--color-border-tertiary)' }}>
             <div style={{ display: 'flex', gap: 16 }}>
               {[['matched', 'var(--color-text-success)'], ['new', 'var(--color-text-warning)'], ['skipped', 'var(--color-text-tertiary)'], ['pending', 'var(--color-text-info)']].map(([status, color]) => (
@@ -723,7 +536,6 @@ export default function StoneQA({ onBack }) {
             </div>
           </div>
 
-          {/* Current person or all-done state */}
           {allDone ? (
             <div style={{ background: 'var(--color-background-secondary)', borderRadius: 8, padding: 24, border: '0.5px solid var(--color-border-success)', textAlign: 'center' }}>
               <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-success)', margin: '0 0 8px' }}>All people resolved</p>
@@ -796,11 +608,11 @@ export default function StoneQA({ onBack }) {
               </button>
             ) : matchSearchAttempted && !matchSearching ? (
               <>
-                <button onClick={skipMatch}
+                <button onClick={() => { skipMatch(); advancePerson() }}
                   style={{ flex: 1, padding: 12, fontSize: 13, background: 'transparent', border: '0.5px solid var(--color-border-secondary)', color: 'var(--color-text-secondary)', borderRadius: 6, cursor: 'pointer' }}>
                   Skip — no match
                 </button>
-                <button onClick={markAsNewRecord}
+                <button onClick={() => { markAsNewRecord(); advancePerson() }}
                   style={{ flex: 1, padding: 12, fontSize: 13, fontWeight: 600, background: 'rgba(217,119,6,0.15)', color: 'var(--color-text-warning)', border: '0.5px solid var(--color-border-warning)', borderRadius: 6, cursor: 'pointer' }}>
                   + New record
                 </button>
@@ -814,5 +626,25 @@ export default function StoneQA({ onBack }) {
     )
   }
 
-  return null
+  // ── Render: done (status layer download) ──────────────────────────────────
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--color-background-primary)', color: 'var(--color-text-primary)', paddingBottom: 60 }}>
+      <Header title="Stone QA" subtitle="Session complete" onBack={onBack} />
+      <div style={{ maxWidth: 600, margin: '24px auto', padding: '0 16px' }}>
+        <div style={{ background: 'var(--color-background-secondary)', borderRadius: 'var(--border-radius-md)', padding: 20, border: '0.5px solid var(--color-border-tertiary)', marginBottom: 16 }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', margin: '0 0 6px' }}>Update QField status layer</p>
+          <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: '0 0 14px', lineHeight: 1.6 }}>
+            Download a GeoJSON of all photographed stones. Add to QGIS as a green point layer, re-package, and push to QFieldCloud.
+          </p>
+          <button onClick={downloadStatusLayer}
+            style={{ padding: '9px 16px', fontSize: 13, fontWeight: 600, background: 'var(--color-background-info)', color: 'var(--color-text-info)', border: '0.5px solid var(--color-border-info)', borderRadius: 6, cursor: 'pointer' }}>
+            Download seaview_photographed.geojson
+          </button>
+        </div>
+        <button onClick={() => setPhase('queue')} style={{ width: '100%', padding: 12, fontSize: 13, fontWeight: 600 }}>
+          Back to Queue
+        </button>
+      </div>
+    </div>
+  )
 }

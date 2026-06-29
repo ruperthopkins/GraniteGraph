@@ -36,3 +36,5 @@ assets/**/*.tiff
 assets/**/*.TIFF
 assets/**/*.pdf
 assets/**/*.PDF
+
+.vercel

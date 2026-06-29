@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { supabase } from './supabaseClient'
+import { useStoneMatrix } from './hooks/useStoneMatrix'
+import { cleanNameForSearch } from './utils/stoneMatrixUtils'
+import { REL_LABEL, INVERSE_REL } from './constants'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
@@ -16,60 +19,6 @@ const stoneIcon = new L.Icon({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
   iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
 })
-
-// ── KINSHIP PARSER ───────────────────────────────────────────
-const parseKinshipHints = (hints) => {
-  if (!hints || hints.length === 0) return []
-  const relationships = []
-  hints.forEach(hint => {
-    const h = hint.trim()
-    if (/\b(his|her)\s+wife\b/i.test(h)) {
-      relationships.push({ type: 'spouse', rawNames: [], hint, implicit: true })
-      return
-    }
-    const spouseMatch = h.match(/\b(?:wife|husband|spouse|consort)\s+of\s+(.+)/i)
-    if (spouseMatch) {
-      relationships.push({ type: 'spouse', rawNames: [spouseMatch[1].trim().replace(/\.$/, '')], hint, implicit: false })
-      return
-    }
-    const childMatch = h.match(/\b(?:son|daughter|child)\s+of\s+(.+)/i)
-    if (childMatch) {
-      const parentNames = childMatch[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
-      relationships.push({ type: 'child', rawNames: parentNames, hint, implicit: false })
-      return
-    }
-    if (/\btheir\s+(?:son|daughter|child)\b/i.test(h)) {
-      relationships.push({ type: 'child', rawNames: [], hint, implicit: true, theirChild: true })
-      return
-    }
-    const parentMatch = h.match(/\b(?:father|mother|parent)\s+of\s+(.+)/i)
-    if (parentMatch) {
-      const childNames = parentMatch[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
-      relationships.push({ type: 'parent', rawNames: childNames, hint, implicit: false })
-      return
-    }
-    const siblingMatch = h.match(/\b(?:brother|sister|sibling)\s+of\s+(.+)/i)
-    if (siblingMatch) {
-      const siblingNames = siblingMatch[1].trim().replace(/\.$/, '').split(/\s+and\s+|\s*&\s*/i).map(n => n.trim()).filter(n => n.length > 2)
-      relationships.push({ type: 'sibling', rawNames: siblingNames, hint, implicit: false })
-    }
-  })
-  return relationships
-}
-
-const REL_LABEL = {
-  spouse: 'Spouse of',
-  child: 'Child of',
-  parent: 'Parent of',
-  sibling: 'Sibling of',
-}
-
-const INVERSE_REL = {
-  spouse: 'spouse',
-  child: 'parent',
-  parent: 'child',
-  sibling: 'sibling',
-}
 
 // ── HEADER ───────────────────────────────────────────────────
 function Header({ onMap, onRecent, onAdmin, onHome }) {
@@ -103,26 +52,20 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
   const [loading, setLoading] = useState(false)
   const imageBase64Ref = useRef(null)
 
-  // Stone matrix — the heart of the new workflow
-  const [stoneMatrix, setStoneMatrix] = useState(null)
-  // stoneMatrix = {
-  //   stone_condition, stone_notes,
-  //   people: [{
-  //     index, geminiData, correctedName,
-  //     role: 'occupant'|'mentioned',
-  //     relationships: [{type, rawNames, hint, implicit}],
-  //     confirmedRelationships: [{type, subjectIndex, objectIndex, objectName}],
-  //     matchedRecord: null | deceased record,
-  //     matchStatus: 'pending'|'matched'|'skipped'|'new'
-  //   }]
-  // }
+  const {
+    stoneMatrix, setStoneMatrix,
+    matchingIndex, setMatchingIndex,
+    matchSearchQuery, setMatchSearchQuery,
+    matchSearchResults, setMatchSearchResults,
+    matchSearching, matchSearchAttempted, setMatchSearchAttempted,
+    initMatrix, resetMatrix, prepareMatch,
+    updatePersonRole, updateCorrectedName, updateRelField,
+    searchRelatedPerson,
+    confirmRelationship, skipRelationship,
+    confirmRelationshipExternal, confirmRelationshipNameOnly,
+    handleMatchSearch, selectMatch, advancePerson, skipMatch, markAsNewRecord,
+  } = useStoneMatrix()
 
-  // Match phase state
-  const [matchingIndex, setMatchingIndex] = useState(0)
-  const [matchSearchQuery, setMatchSearchQuery] = useState('')
-  const [matchSearchResults, setMatchSearchResults] = useState([])
-  const [matchSearching, setMatchSearching] = useState(false)
-  const [matchSearchAttempted, setMatchSearchAttempted] = useState(false)
   const [saving, setSaving] = useState(false)
 
   // Field notes
@@ -144,11 +87,6 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
 
   const fileInput = useRef(null)
   const currentStoneRef = useRef(null)
-  const autoSearchTimer = useRef(null)
-
-  useEffect(() => {
-    return () => { if (autoSearchTimer.current) clearTimeout(autoSearchTimer.current) }
-  }, [])
 
   // ── IMAGE HANDLING ───────────────────────────────────────
   const handlePhoto = (e) => {
@@ -162,7 +100,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     }
     reader.readAsDataURL(file)
     currentStoneRef.current = null
-    setStoneMatrix(null)
+    resetMatrix()
     setPhotoPhase('capture')
     setVolunteerNotes('')
     setSelectedFlags([])
@@ -200,27 +138,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
         throw new Error('Gemini error: ' + (geminiData.error?.message || JSON.stringify(geminiData)))
       }
       const extracted = JSON.parse(geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim())
-
-      // Build initial stone matrix from Gemini output
-      const people = (extracted.people || []).map((p, index) => {
-        const fullName = [p.first_name, p.middle_name, p.last_name].filter(Boolean).join(' ')
-        return {
-          index,
-          geminiData: p,
-          correctedName: fullName,
-          role: 'occupant', // default — volunteer can change
-          relationships: parseKinshipHints(p.kinship_hints || []),
-          confirmedRelationships: [],
-          matchedRecord: null,
-          matchStatus: 'pending'
-        }
-      })
-
-      setStoneMatrix({
-        stone_condition: extracted.stone_condition || 'fair',
-        stone_notes: extracted.stone_notes || '',
-        people
-      })
+      initMatrix(extracted.people || [], extracted.stone_condition, extracted.stone_notes)
       setPhotoPhase('matrix')
     } catch (err) {
       console.error(err)
@@ -229,293 +147,28 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     setLoading(false)
   }
 
-  // ── MATRIX PHASE — build relationship matrix ─────────────
-  const updatePersonRole = (index, role) => {
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) => i === index ? { ...p, role } : p)
-    }))
-  }
-
-  const updateCorrectedName = (index, name) => {
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) => i === index ? { ...p, correctedName: name } : p)
-    }))
-    if (autoSearchTimer.current) clearTimeout(autoSearchTimer.current)
-    autoSearchTimer.current = setTimeout(() => {
-      preSearchPerson(index, name)
-    }, 800)
-  }
-
-  const preSearchPerson = async (index, name) => {
-    if (!name.trim() || name.trim().length < 3) return
-    const terms = name.trim().split(/[\s,]+/).filter(Boolean)
-    let dbQuery = supabase.from('v_deceased_search').select('*')
-    if (terms.length === 1) {
-      dbQuery = dbQuery.or('first_name.ilike.*' + terms[0] + '*,last_name.ilike.*' + terms[0] + '*,maiden_name.ilike.*' + terms[0] + '*')
-    } else {
-      const lastName = terms[terms.length - 1]
-      const firstTerms = terms.slice(0, -1)
-      dbQuery = dbQuery.ilike('last_name', '%' + lastName + '%')
-      firstTerms.forEach(term => {
-        dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%,maiden_name.ilike.%' + term + '%')
-      })
-    }
-    const person = stoneMatrix?.people?.[index]
-    const deathYearMatch = (person?.geminiData?.date_of_death_verbatim || '').match(/\d{4}/)
-    if (deathYearMatch) {
-      const year = parseInt(deathYearMatch[0])
-      if (year >= 1700 && year <= 2030) {
-        dbQuery = dbQuery.or(
-          `date_of_death.is.null,and(date_of_death.gte.${year - 15}-01-01,date_of_death.lte.${year + 15}-12-31)`
-        )
-      }
-    }
-    const { data } = await dbQuery.order('last_name').order('first_name').limit(20)
-    if (data && data.length > 0) {
-      setStoneMatrix(prev => {
-        if (!prev?.people?.[index]) return prev
-        return {
-          ...prev,
-          people: prev.people.map((p, i) => i === index ? { ...p, preSearchResults: data } : p)
-        }
-      })
-    }
-  }
-
-  const confirmRelationship = (personIndex, rel, objectIndex) => {
-    // objectIndex is the index of the other person in stoneMatrix.people
-    setStoneMatrix(prev => {
-      const people = [...prev.people]
-      const person = { ...people[personIndex] }
-      const confirmed = {
-        type: rel.type,
-        hint: rel.hint,
-        objectIndex,
-        objectName: people[objectIndex]?.correctedName || rel.rawNames[0] || 'Unknown'
-      }
-      person.confirmedRelationships = [...person.confirmedRelationships, confirmed]
-      people[personIndex] = person
-      return { ...prev, people }
-    })
-  }
-
-  const skipRelationship = (personIndex, relIndex) => {
-    setStoneMatrix(prev => {
-      const people = [...prev.people]
-      const person = { ...people[personIndex] }
-      const rels = [...person.relationships]
-      rels.splice(relIndex, 1)
-      person.relationships = rels
-      people[personIndex] = person
-      return { ...prev, people }
-    })
-  }
-
-  const updateRelField = (pIndex, rIndex, field, value) => {
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) => i !== pIndex ? p : {
-        ...p,
-        relationships: p.relationships.map((r, ri) => ri !== rIndex ? r : { ...r, [field]: value })
-      })
-    }))
-  }
-
-  const searchRelatedPerson = async (pIndex, rIndex, name) => {
-    if (!name.trim()) return
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) => i !== pIndex ? p : {
-        ...p,
-        relationships: p.relationships.map((r, ri) => ri !== rIndex ? r : { ...r, relSearching: true, relSearchResults: null })
-      })
-    }))
-    const terms = name.trim().split(/\s+/)
-    let dbQuery = supabase.from('v_deceased_search').select('*')
-    if (terms.length === 1) {
-      dbQuery = dbQuery.or(`first_name.ilike.*${terms[0]}*,last_name.ilike.*${terms[0]}*,maiden_name.ilike.*${terms[0]}*`)
-    } else {
-      const lastName = terms[terms.length - 1]
-      const firstTerms = terms.slice(0, -1)
-      dbQuery = dbQuery.ilike('last_name', `%${lastName}%`)
-      firstTerms.forEach(term => { dbQuery = dbQuery.or(`first_name.ilike.%${term}%,middle_name.ilike.%${term}%,maiden_name.ilike.%${term}%`) })
-    }
-    const { data } = await dbQuery.limit(5)
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) => i !== pIndex ? p : {
-        ...p,
-        relationships: p.relationships.map((r, ri) => ri !== rIndex ? r : { ...r, relSearching: false, relSearchResults: data || [] })
-      })
-    }))
-  }
-
-  const confirmRelationshipExternal = (pIndex, rIndex, rel, record) => {
-    const objectName = record.full_name || [record.first_name, record.last_name].filter(Boolean).join(' ')
-    setStoneMatrix(prev => {
-      const people = [...prev.people]
-      const person = { ...people[pIndex] }
-      const rels = [...person.relationships]
-      rels.splice(rIndex, 1)
-      person.relationships = rels
-      person.confirmedRelationships = [...person.confirmedRelationships, {
-        type: rel.type, hint: rel.hint, objectIndex: null,
-        objectDeceasedId: record.deceased_id, objectName
-      }]
-      people[pIndex] = person
-      return { ...prev, people }
-    })
-  }
-
-  const confirmRelationshipNameOnly = (pIndex, rIndex, rel) => {
-    const objectName = rel.relatedName || rel.rawNames[0] || 'Unknown'
-    setStoneMatrix(prev => {
-      const people = [...prev.people]
-      const person = { ...people[pIndex] }
-      const rels = [...person.relationships]
-      rels.splice(rIndex, 1)
-      person.relationships = rels
-      person.confirmedRelationships = [...person.confirmedRelationships, {
-        type: rel.type, hint: rel.hint, objectIndex: null,
-        objectDeceasedId: null, objectName
-      }]
-      people[pIndex] = person
-      return { ...prev, people }
-    })
-  }
-
-  const cleanNameForSearch = (name) => {
-    return name
-      .replace(/\b[A-Z]\.\s*/g, '')      // remove middle initials like "H. "
-      .replace(/\([^)]*\)/g, '')          // remove parenthetical e.g. "(nee Smith)"
-      .replace(/[.,;:'"]/g, '')           // remove stray punctuation
-      .replace(/\s+/g, ' ')              // collapse extra spaces
-      .trim()
-  }
-
   const proceedToMatch = () => {
-    // Warm up the Supabase connection so it's live before the volunteer hits Search.
-    // Gemini analysis can take 10-30s, enough for the connection to go cold and return
-    // an empty result on the first query even though data exists.
-    supabase.from('v_deceased_search').select('deceased_id').limit(1)
-    if (stoneMatrix?.people?.length > 0) {
-      const firstPerson = stoneMatrix.people[0]
-
-      if (pendingPhotoFor && firstPerson.matchStatus === 'pending') {
-        // Compute everything from current snapshot before any setState calls
-        const nextIndex = stoneMatrix.people.length > 1 ? 1 : 0
-        const next = stoneMatrix.people[nextIndex] || firstPerson
-        const cleaned = cleanNameForSearch(next.correctedName)
-        setStoneMatrix(prev => ({
-          ...prev,
-          people: prev.people.map((p, i) =>
-            i === 0 ? { ...p, matchedRecord: pendingPhotoFor, matchStatus: 'matched' } : p
-          )
-        }))
-        setMatchingIndex(nextIndex)
-        setMatchSearchQuery(cleaned)
-        setMatchSearchResults(next.preSearchResults || [])
-        setMatchSearchAttempted(next.preSearchResults ? true : false)
-        setPhotoPhase('match')
-        return
-      }
-
-      const cleaned = cleanNameForSearch(firstPerson.correctedName)
-      setMatchSearchQuery(cleaned)
-      setMatchSearchResults(firstPerson.preSearchResults || [])
-      setMatchSearchAttempted(firstPerson.preSearchResults ? true : false)
+    if (pendingPhotoFor && stoneMatrix?.people?.[0]?.matchStatus === 'pending') {
+      const nextIndex = stoneMatrix.people.length > 1 ? 1 : 0
+      const next = stoneMatrix.people[nextIndex]
+      setStoneMatrix(prev => ({
+        ...prev,
+        people: prev.people.map((p, i) =>
+          i === 0 ? { ...p, matchedRecord: pendingPhotoFor, matchStatus: 'matched' } : p
+        )
+      }))
+      setMatchingIndex(nextIndex)
+      setMatchSearchQuery(cleanNameForSearch(next.correctedName))
+      setMatchSearchResults(next.preSearchResults || [])
+      setMatchSearchAttempted(!!(next.preSearchResults?.length))
+      setPhotoPhase('match')
+      return
     }
-    setMatchingIndex(0)
+    prepareMatch()
     setPhotoPhase('match')
   }
-  // ── MATCH PHASE ──────────────────────────────────────────
-  const handleMatchSearch = async (query) => {
-    if (!query.trim()) return
-    setMatchSearching(true)
-    setMatchSearchResults([])
-    setMatchSearchAttempted(true)
 
-    const buildQuery = () => {
-      const terms = query.trim().split(/[\s,]+/).filter(Boolean)
-      let dbQuery = supabase.from('v_deceased_search').select('*')
-      if (terms.length === 1) {
-        dbQuery = dbQuery.or('first_name.ilike.*' + terms[0] + '*,last_name.ilike.*' + terms[0] + '*,maiden_name.ilike.*' + terms[0] + '*')
-      } else {
-        const lastName = terms[terms.length - 1]
-        const firstTerms = terms.slice(0, -1)
-        dbQuery = dbQuery.ilike('last_name', '%' + lastName + '%')
-        firstTerms.forEach(term => {
-          dbQuery = dbQuery.or('first_name.ilike.%' + term + '%,middle_name.ilike.%' + term + '%,maiden_name.ilike.%' + term + '%')
-        })
-      }
-      // Apply year window if we have a death year
-      const person = stoneMatrix?.people?.[matchingIndex]
-      const deathYearMatch = (person?.geminiData?.date_of_death_verbatim || '').match(/\d{4}/)
-      if (deathYearMatch) {
-        const year = parseInt(deathYearMatch[0])
-        if (year >= 1700 && year <= 2030) {
-          dbQuery = dbQuery.or(
-            `date_of_death.is.null,and(date_of_death.gte.${year - 15}-01-01,date_of_death.lte.${year + 15}-12-31)`
-          )
-        }
-      }
-      return dbQuery.order('last_name').order('first_name').limit(20)
-    }
-
-    let { data, error } = await buildQuery()
-    // Connection may have gone cold during Gemini analysis — retry once automatically
-    if (error || !data) {
-      await new Promise(r => setTimeout(r, 400))
-      ;({ data, error } = await buildQuery())
-    }
-    if (!error) setMatchSearchResults(data || [])
-    setMatchSearching(false)
-  }
-
-  const selectMatch = (record) => {
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) =>
-        i === matchingIndex ? { ...p, matchedRecord: record, matchStatus: 'matched' } : p
-      )
-    }))
-  }
-
-  const skipMatch = () => {
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) =>
-        i === matchingIndex ? { ...p, matchStatus: 'skipped' } : p
-      )
-    }))
-  }
-
-  const markAsNewRecord = () => {
-    setStoneMatrix(prev => ({
-      ...prev,
-      people: prev.people.map((p, i) =>
-        i === matchingIndex ? { ...p, matchStatus: 'new' } : p
-      )
-    }))
-    nextPerson()
-  }
-
-  const nextPerson = () => {
-    const nextIndex = matchingIndex + 1
-    if (nextIndex < stoneMatrix.people.length) {
-      setMatchingIndex(nextIndex)
-      const next = stoneMatrix.people[nextIndex]
-      const cleaned = cleanNameForSearch(next.correctedName)
-      setMatchSearchQuery(cleaned)
-      setMatchSearchResults(next.preSearchResults || [])
-      setMatchSearchAttempted(next.preSearchResults ? true : false)
-    } else {
-      // All people processed — save everything
-      saveStone()
-    }
-  }
+  const nextPerson = () => { const done = advancePerson(); if (done) saveStone() }
 
   // ── GPS ──────────────────────────────────────────────────
   const getAccuratePosition = () => new Promise((resolve, reject) => {
@@ -1387,7 +1040,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
         className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white py-3 rounded-lg text-sm">
         Skip — no match
       </button>
-      <button onClick={markAsNewRecord} disabled={saving}
+      <button onClick={() => { markAsNewRecord(); nextPerson() }} disabled={saving}
         className="flex-1 bg-amber-700 hover:bg-amber-600 disabled:bg-gray-600 text-white font-bold py-3 rounded-lg text-sm">
         + New record
       </button>
