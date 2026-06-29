@@ -605,7 +605,13 @@ export default function StoneQA({ onBack }) {
                     <option value="parent">Parent of</option>
                     <option value="sibling">Sibling of</option>
                   </select>
-                  {rel.rawNames.length > 0 && <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>{rel.rawNames.join(' & ')}</span>}
+                  <input
+                    type="text"
+                    value={rel.relatedName ?? rel.rawNames[0] ?? ''}
+                    onChange={e => updateRelField(pIndex, rIndex, 'relatedName', e.target.value)}
+                    placeholder="name…"
+                    style={{ flex: 1, background: '#fff', border: '1.5px solid var(--color-border-warning)', borderRadius: 4, padding: '2px 6px', fontSize: 11, color: '#111', outline: 'none' }}
+                  />
                 </div>
                 {rel.hint && <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '0 0 6px', fontStyle: 'italic' }}>"{rel.hint}"</p>}
 
