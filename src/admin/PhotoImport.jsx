@@ -142,6 +142,8 @@ export default function PhotoImport({ onBack }) {
   const handleCommit = async () => {
     setPhase('saving')
     setError(null)
+    const { data: { user } } = await supabase.auth.getUser()
+    const userId = user?.id || null
     const total = rows.length
     let gpsCreated = 0, gpsReplaced = 0, gpsKept = 0
     let photosUploaded = 0, photosSkipped = 0, photosFailed = 0, gpsFailed = 0
@@ -222,6 +224,7 @@ export default function PhotoImport({ onBack }) {
               stone_id: stoneId,
               photo_url: publicUrl,
               is_primary: count === 0,
+              taken_by: userId,
             })
             photosUploaded++
           }
