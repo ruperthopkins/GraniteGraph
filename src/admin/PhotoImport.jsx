@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient'
 import { CEMETERY_ID } from '../constants'
 
 const PHOTO_BUCKET = 'gravestone-photos'
-const MATCH_RADIUS_M = 20
+const MATCH_RADIUS_M = 5
 const AUTO_REPLACE_M = 3
 
 function haversineM(lat1, lng1, lat2, lng2) {
