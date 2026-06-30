@@ -164,7 +164,7 @@ export default function PhotoImport({ onBack }) {
             gps_accuracy_m: row.newAcc,
             condition_notes: conditionNotes,
             field_notes: fieldNotes,
-            field_status: row.hasPhoto ? 'photographed' : 'needs_review',
+            field_status: row.hasPhoto ? 'needs_curation' : 'needs_followup',
           }).select('stone_id').single()
           if (error) throw error
           stoneId = data.stone_id
@@ -176,7 +176,7 @@ export default function PhotoImport({ onBack }) {
             gps_accuracy_m: row.newAcc,
             ...(conditionNotes && { condition_notes: conditionNotes }),
             ...(fieldNotes && { field_notes: fieldNotes }),
-            ...(row.hasPhoto && { field_status: 'photographed' }),
+            ...(row.hasPhoto && { field_status: 'needs_curation' }),
           }).eq('stone_id', stoneId)
           if (error) throw error
           gpsReplaced++
@@ -186,7 +186,7 @@ export default function PhotoImport({ onBack }) {
             await supabase.from('stones').update({
               ...(conditionNotes && { condition_notes: conditionNotes }),
               ...(fieldNotes && { field_notes: fieldNotes }),
-              ...(row.hasPhoto && { field_status: 'photographed' }),
+              ...(row.hasPhoto && { field_status: 'needs_curation' }),
             }).eq('stone_id', stoneId)
           }
           gpsKept++
