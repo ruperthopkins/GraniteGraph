@@ -77,7 +77,7 @@ export default function StoneQA({ onBack }) {
 
       const { data: photos, error: photosErr } = await supabase
         .from('stone_photos')
-        .select('photo_id, stone_id, photo_url, is_primary, stones(inscription_text, stone_condition)')
+        .select('photo_id, stone_id, photo_url, is_primary, stones(inscription_text, stone_condition, field_notes)')
         .order('stone_id')
         .order('is_primary', { ascending: false })
       if (photosErr) throw photosErr
@@ -93,6 +93,7 @@ export default function StoneQA({ onBack }) {
           photo_url: p.photo_url,
           inscription_text: p.stones?.inscription_text,
           stone_condition: p.stones?.stone_condition,
+          field_notes: p.stones?.field_notes,
         })
       }
       setQueue(entries)
@@ -295,6 +296,9 @@ export default function StoneQA({ onBack }) {
               <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '0 0 3px', fontFamily: 'monospace' }}>
                 {entry.stone_id.slice(0, 8)}…
               </p>
+              {entry.field_notes && (
+                <p style={{ fontSize: 12, color: 'var(--color-text-success)', margin: '0 0 2px' }}>{entry.field_notes.slice(0, 80)}{entry.field_notes.length > 80 ? '…' : ''}</p>
+              )}
               {entry.inscription_text
                 ? <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: 0 }}>{entry.inscription_text.slice(0, 100)}{entry.inscription_text.length > 100 ? '…' : ''}</p>
                 : <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: 0, fontStyle: 'italic' }}>No inscription yet — Gemini analysis needed</p>}
@@ -312,6 +316,12 @@ export default function StoneQA({ onBack }) {
       <Header title="Stone QA" subtitle="Run Gemini to extract inscription data" onBack={() => setPhase('queue')} />
       <div style={{ maxWidth: 600, margin: '0 auto', padding: 16 }}>
         <img src={currentEntry.photo_url} alt="Gravestone" style={{ width: '100%', borderRadius: 8, marginBottom: 16 }} />
+        {currentEntry.field_notes && (
+          <div style={{ background: 'rgba(34,197,94,0.08)', borderRadius: 8, padding: 12, marginBottom: 12, border: '0.5px solid rgba(34,197,94,0.3)' }}>
+            <p style={{ fontSize: 11, color: 'var(--color-text-success)', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: 1 }}>Field notes</p>
+            <p style={{ fontSize: 13, color: 'var(--color-text-primary)', margin: 0, fontWeight: 500 }}>{currentEntry.field_notes}</p>
+          </div>
+        )}
         {currentEntry.inscription_text && (
           <div style={{ background: 'var(--color-background-secondary)', borderRadius: 8, padding: 12, marginBottom: 16, border: '0.5px solid var(--color-border-tertiary)' }}>
             <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: 1 }}>Existing inscription</p>

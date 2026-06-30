@@ -74,8 +74,11 @@ export default function PhotoImport({ onBack }) {
       const text = await geojsonFile.text()
       const geojson = JSON.parse(text)
       if (geojson.type !== 'FeatureCollection') throw new Error('File must be a GeoJSON FeatureCollection')
-      const feats = geojson.features.filter(f => f.geometry?.type === 'Point')
-      if (!feats.length) throw new Error('No Point features found')
+      // Skip features with no Photo and no Notes (un-photographed placeholder targets)
+      const feats = geojson.features.filter(f =>
+        f.geometry?.type === 'Point' && (f.properties?.Photo || f.properties?.Notes)
+      )
+      if (!feats.length) throw new Error('No Point features with photos or notes found')
 
       const photoByName = {}
       for (const f of photoFiles) photoByName[f.name] = f
@@ -98,9 +101,9 @@ export default function PhotoImport({ onBack }) {
         const distM = nearest ? Math.round(nearestDist) : null
         const gpsAction = computeGpsAction(newAcc, nearest)
 
-        // props.photo is like "files/seaview-stones_20260615143022123_image_0001.jpg"
+        // props.Photo is like "files/seaview-stones_20260615143022123_image_0001.jpg"
         let photoFile = null, photoFilename = null
-        const rawPhoto = props.photo
+        const rawPhoto = props.Photo
         if (rawPhoto && typeof rawPhoto === 'string' && rawPhoto.trim()) {
           photoFilename = rawPhoto.split(/[/\\]/).pop()
           photoFile = photoByName[photoFilename] || null
@@ -148,7 +151,8 @@ export default function PhotoImport({ onBack }) {
       setSaveProgress({ done: idx, total })
       const act = effectiveGpsAction(row)
       const locationStr = `SRID=4326;POINT(${row.lng} ${row.lat})`
-      const conditionNotes = [row.props.condition, row.props.notes].filter(Boolean).join(' — ') || null
+      const conditionNotes = row.props.Condition || null
+      const fieldNotes = row.props.Notes || null
 
       let stoneId = null
 
@@ -159,6 +163,7 @@ export default function PhotoImport({ onBack }) {
             location: locationStr,
             gps_accuracy_m: row.newAcc,
             condition_notes: conditionNotes,
+            field_notes: fieldNotes,
             field_status: row.hasPhoto ? 'photographed' : 'needs_review',
           }).select('stone_id').single()
           if (error) throw error
@@ -169,14 +174,20 @@ export default function PhotoImport({ onBack }) {
           const { error } = await supabase.from('stones').update({
             location: locationStr,
             gps_accuracy_m: row.newAcc,
+            ...(conditionNotes && { condition_notes: conditionNotes }),
+            ...(fieldNotes && { field_notes: fieldNotes }),
             ...(row.hasPhoto && { field_status: 'photographed' }),
           }).eq('stone_id', stoneId)
           if (error) throw error
           gpsReplaced++
         } else {
           stoneId = act.stoneId || row.nearest?.stone_id
-          if (stoneId && row.hasPhoto) {
-            await supabase.from('stones').update({ field_status: 'photographed' }).eq('stone_id', stoneId)
+          if (stoneId) {
+            await supabase.from('stones').update({
+              ...(conditionNotes && { condition_notes: conditionNotes }),
+              ...(fieldNotes && { field_notes: fieldNotes }),
+              ...(row.hasPhoto && { field_status: 'photographed' }),
+            }).eq('stone_id', stoneId)
           }
           gpsKept++
         }
@@ -386,9 +397,9 @@ export default function PhotoImport({ onBack }) {
                     {row.nearest.inscription_text ? ` · "${row.nearest.inscription_text.slice(0, 40)}…"` : ''}
                   </p>
                 )}
-                {(row.props.notes || row.props.condition) && (
+                {(row.props.Notes || row.props.Condition) && (
                   <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: '3px 0 0', fontStyle: 'italic' }}>
-                    {[row.props.condition, row.props.notes].filter(Boolean).join(' — ')}
+                    {[row.props.Condition, row.props.Notes].filter(Boolean).join(' — ')}
                   </p>
                 )}
               </div>
