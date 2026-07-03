@@ -347,25 +347,28 @@ export default function StoneQA({ onBack }) {
     <div style={{ minHeight: '100vh', background: 'var(--color-background-primary)', color: 'var(--color-text-primary)', paddingBottom: 100 }}>
       <Header title="Stone QA — Review" subtitle={`${stoneMatrix.people.length} person${stoneMatrix.people.length !== 1 ? 's' : ''} extracted`} onBack={() => setPhase('photo')} />
       <div style={{ maxWidth: 640, margin: '0 auto', padding: 16 }}>
-        <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-          <img src={currentEntry.photo_url} alt="" style={{ width: 72, height: 96, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-              {['good', 'fair', 'poor', 'illegible'].map(c => (
-                <button key={c} onClick={() => setStoneMatrix(prev => ({ ...prev, stone_condition: c }))}
-                  style={{ fontSize: 11, padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
-                    background: stoneMatrix.stone_condition === c ? 'var(--color-background-success)' : 'var(--color-background-secondary)',
-                    color: stoneMatrix.stone_condition === c ? 'var(--color-text-success)' : 'var(--color-text-tertiary)',
-                    border: `0.5px solid ${stoneMatrix.stone_condition === c ? 'var(--color-border-success)' : 'var(--color-border-tertiary)'}` }}>
-                  {c}
-                </button>
-              ))}
-            </div>
-            {stoneMatrix.stone_notes && (
-              <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: 0, fontStyle: 'italic' }}>{stoneMatrix.stone_notes}</p>
-            )}
+        <img src={currentEntry.photo_url} alt="Gravestone" style={{ width: '100%', borderRadius: 8, marginBottom: 12 }} />
+        {currentEntry.field_notes && (
+          <div style={{ background: 'rgba(34,197,94,0.08)', borderRadius: 8, padding: 12, marginBottom: 12, border: '0.5px solid rgba(34,197,94,0.3)' }}>
+            <p style={{ fontSize: 11, color: 'var(--color-text-success)', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: 1 }}>Field notes</p>
+            <p style={{ fontSize: 13, color: 'var(--color-text-primary)', margin: 0, fontWeight: 500 }}>{currentEntry.field_notes}</p>
           </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+          {['good', 'fair', 'poor', 'illegible'].map(c => (
+            <button key={c} onClick={() => setStoneMatrix(prev => ({ ...prev, stone_condition: c }))}
+              style={{ fontSize: 11, padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
+                background: stoneMatrix.stone_condition === c ? 'var(--color-background-success)' : 'var(--color-background-secondary)',
+                color: stoneMatrix.stone_condition === c ? 'var(--color-text-success)' : 'var(--color-text-tertiary)',
+                border: `0.5px solid ${stoneMatrix.stone_condition === c ? 'var(--color-border-success)' : 'var(--color-border-tertiary)'}` }}>
+              {c}
+            </button>
+          ))}
         </div>
+        {stoneMatrix.stone_notes && (
+          <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: '0 0 16px', fontStyle: 'italic' }}>{stoneMatrix.stone_notes}</p>
+        )}
+        {!stoneMatrix.stone_notes && <div style={{ marginBottom: 16 }} />}
 
         {stoneMatrix.people.length === 0 && (
           <div style={{ background: 'var(--color-background-secondary)', borderRadius: 8, padding: 16, marginBottom: 16, border: '0.5px solid var(--color-border-tertiary)' }}>
