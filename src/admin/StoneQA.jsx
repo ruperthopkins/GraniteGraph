@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { CEMETERY_ID, REL_LABEL, INVERSE_REL } from '../constants'
 import { useStoneMatrix } from '../hooks/useStoneMatrix'
+import { parseKinshipHints } from '../utils/stoneMatrixUtils'
 
 async function urlToBase64(url) {
   const resp = await fetch(url)
@@ -30,6 +31,35 @@ async function urlToBase64(url) {
   })
 }
 
+function parseInscriptionToPeople(inscriptionText) {
+  if (!inscriptionText) return []
+  return inscriptionText.split('|').map(s => s.trim()).filter(Boolean).map((seg, index) => {
+    const years = [...seg.matchAll(/\b(\d{4})\b/g)].map(m => m[1])
+    const withoutYears = seg.replace(/\b\d{4}\b/g, '').trim()
+    const kinshipIdx = withoutYears.search(/\b(WIFE|HUSBAND|SON|DAUGHTER|MOTHER|FATHER|CHILD|CHILDREN|THEIR|HIS|HER)\b/i)
+    const nameRaw = kinshipIdx > 0 ? withoutYears.slice(0, kinshipIdx).trim() : withoutYears
+    const kinshipHint = kinshipIdx >= 0 ? withoutYears.slice(kinshipIdx).trim() : ''
+    const name = nameRaw.split(/\s+/).filter(Boolean)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
+    const kinship_hints = kinshipHint ? [kinshipHint] : []
+    return {
+      index,
+      geminiData: {
+        date_of_birth_verbatim: years.length >= 2 ? years[0] : null,
+        date_of_death_verbatim: years.length >= 2 ? years[1] : (years[0] || null),
+        kinship_hints,
+        maiden_name: null,
+      },
+      correctedName: name,
+      role: 'occupant',
+      relationships: parseKinshipHints(kinship_hints),
+      confirmedRelationships: [],
+      matchedRecord: null,
+      matchStatus: 'pending',
+    }
+  })
+}
+
 function Header({ title, subtitle, onBack }) {
   return (
     <div style={{ background: 'var(--color-background-secondary)', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '0.5px solid var(--color-border-secondary)' }}>
@@ -52,7 +82,7 @@ export default function StoneQA({ onBack }) {
   const [error, setError] = useState(null)
 
   const {
-    stoneMatrix, setStoneMatrix,
+    stoneMatrix, setStoneMatrix, stoneMatrixRef,
     matchingIndex,
     matchSearchQuery, setMatchSearchQuery,
     matchSearchResults, setMatchSearchResults,
@@ -86,7 +116,6 @@ export default function StoneQA({ onBack }) {
       const entries = []
       for (const p of (photos || [])) {
         if (linkedIds.has(p.stone_id) || seen.has(p.stone_id)) continue
-        if (p.stones?.field_status === 'complete') continue
         seen.add(p.stone_id)
         entries.push({
           stone_id: p.stone_id,
@@ -139,6 +168,19 @@ export default function StoneQA({ onBack }) {
     setLoading(false)
   }
 
+  const skipToMatch = () => {
+    const people = parseInscriptionToPeople(currentEntry.inscription_text)
+    const matrix = {
+      stone_condition: currentEntry.stone_condition || 'fair',
+      stone_notes: '',
+      people,
+    }
+    stoneMatrixRef.current = matrix
+    setStoneMatrix(matrix)
+    prepareMatch()
+    setPhase('match')
+  }
+
   const proceedToMatch = () => {
     prepareMatch()
     setPhase('match')
@@ -181,12 +223,13 @@ export default function StoneQA({ onBack }) {
 
       for (const person of resolvedPeople) {
         if (!person.matchedRecord) continue
-        await supabase.from('stone_deceased').insert({
+        const { error: sdErr } = await supabase.from('stone_deceased').insert({
           stone_id: currentEntry.stone_id,
           deceased_id: person.matchedRecord.deceased_id,
           match_method: 'desktop_qa',
           role: person.role,
         })
+        if (sdErr) throw sdErr
         if (person.geminiData.maiden_name && !person.matchedRecord.maiden_name) {
           await supabase.from('deceased')
             .update({ maiden_name: person.geminiData.maiden_name })
@@ -332,10 +375,16 @@ export default function StoneQA({ onBack }) {
         {error && <p style={{ fontSize: 12, color: 'var(--color-text-danger)', marginBottom: 12 }}>{error}</p>}
       </div>
       <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--color-background-secondary)', padding: '12px 16px', borderTop: '0.5px solid var(--color-border-secondary)' }}>
-        <div style={{ maxWidth: 600, margin: '0 auto' }}>
+        <div style={{ maxWidth: 600, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {currentEntry.inscription_text && (
+            <button onClick={skipToMatch}
+              style={{ width: '100%', padding: 12, fontSize: 13, fontWeight: 600, background: 'var(--color-background-info)', color: 'var(--color-text-info)', border: '0.5px solid var(--color-border-info)', borderRadius: 6, cursor: 'pointer' }}>
+              Match from existing inscription →
+            </button>
+          )}
           <button onClick={analyzePhoto} disabled={loading}
-            style={{ width: '100%', padding: 14, fontSize: 14, fontWeight: 600 }}>
-            {loading ? 'Analyzing… (15-30s)' : 'Run Gemini Analysis'}
+            style={{ width: '100%', padding: currentEntry.inscription_text ? 10 : 14, fontSize: currentEntry.inscription_text ? 13 : 14, fontWeight: 600 }}>
+            {loading ? 'Analyzing… (15-30s)' : currentEntry.inscription_text ? 'Re-run Gemini Analysis' : 'Run Gemini Analysis'}
           </button>
         </div>
       </div>
