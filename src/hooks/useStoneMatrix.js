@@ -219,6 +219,25 @@ export function useStoneMatrix() {
       people: prev.people.map((p, i) => i === matchingIndex ? { ...p, matchStatus: 'new' } : p)
     }))
 
+  const addBlankPerson = () => {
+    setStoneMatrix(prev => ({
+      ...prev,
+      people: [...prev.people, {
+        index: prev.people.length,
+        geminiData: { date_of_birth_verbatim: null, date_of_death_verbatim: null, kinship_hints: [], maiden_name: null },
+        correctedName: '',
+        role: 'occupant',
+        relationships: [],
+        confirmedRelationships: [],
+        matchedRecord: null,
+        matchStatus: 'pending',
+      }]
+    }))
+    setMatchSearchQuery('')
+    setMatchSearchResults([])
+    setMatchSearchAttempted(false)
+  }
+
   return {
     stoneMatrix, setStoneMatrix, stoneMatrixRef,
     matchingIndex, setMatchingIndex,
@@ -230,6 +249,6 @@ export function useStoneMatrix() {
     searchRelatedPerson, preSearchPerson,
     confirmRelationship, skipRelationship,
     confirmRelationshipExternal, confirmRelationshipNameOnly,
-    handleMatchSearch, selectMatch, advancePerson, skipMatch, markAsNewRecord,
+    handleMatchSearch, selectMatch, advancePerson, skipMatch, markAsNewRecord, addBlankPerson,
   }
 }

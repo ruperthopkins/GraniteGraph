@@ -92,7 +92,7 @@ export default function StoneQA({ onBack }) {
     searchRelatedPerson,
     confirmRelationship, skipRelationship,
     confirmRelationshipExternal, confirmRelationshipNameOnly,
-    handleMatchSearch, selectMatch, advancePerson, skipMatch, markAsNewRecord,
+    handleMatchSearch, selectMatch, advancePerson, skipMatch, markAsNewRecord, addBlankPerson,
   } = useStoneMatrix()
 
   useEffect(() => { loadQueue() }, [])
@@ -599,10 +599,10 @@ export default function StoneQA({ onBack }) {
           </div>
 
           {allDone ? (
-            <div style={{ background: 'var(--color-background-secondary)', borderRadius: 8, padding: 24, border: '0.5px solid var(--color-border-success)', textAlign: 'center' }}>
-              <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-success)', margin: '0 0 8px' }}>All people resolved</p>
+            <div style={{ background: 'var(--color-background-secondary)', borderRadius: 8, padding: 20, border: '0.5px solid var(--color-border-success)', textAlign: 'center' }}>
+              <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-success)', margin: '0 0 6px' }}>All people resolved</p>
               <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>
-                {stoneMatrix.people.filter(p => p.matchedRecord || p.matchStatus === 'new').length} will be linked to this stone.
+                {stoneMatrix.people.filter(p => p.matchedRecord || p.matchStatus === 'new').length} will be linked · {stoneMatrix.people.filter(p => p.matchStatus === 'skipped').length} skipped
               </p>
             </div>
           ) : person ? (
@@ -610,48 +610,49 @@ export default function StoneQA({ onBack }) {
               <p style={{ fontSize: 11, color: person.role === 'occupant' ? 'var(--color-text-success)' : 'var(--color-text-warning)', fontWeight: 600, margin: '0 0 4px' }}>
                 {person.role === 'occupant' ? '⬛ Occupant' : '📝 Mentioned'}
               </p>
-              <p style={{ fontSize: 17, fontWeight: 700, margin: '0 0 4px' }}>{person.correctedName}</p>
+              {person.correctedName
+                ? <p style={{ fontSize: 17, fontWeight: 700, margin: '0 0 4px' }}>{person.correctedName}</p>
+                : <p style={{ fontSize: 12, color: 'var(--color-text-success)', margin: '0 0 8px', fontStyle: 'italic' }}>Added person — type name to search</p>}
               {person.geminiData.date_of_birth_verbatim && <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: '0 0 2px' }}>b. {person.geminiData.date_of_birth_verbatim}</p>}
               {person.geminiData.date_of_death_verbatim && <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>d. {person.geminiData.date_of_death_verbatim}</p>}
 
-              {person.matchStatus === 'matched' ? (
-                <div style={{ marginTop: 10, background: 'rgba(16,185,129,0.1)', borderRadius: 6, padding: 10 }}>
-                  <p style={{ fontSize: 13, color: 'var(--color-text-success)', margin: '0 0 4px' }}>✓ Matched: {person.matchedRecord.full_name}</p>
-                  <button onClick={() => { setStoneMatrix(prev => ({ ...prev, people: prev.people.map((p, i) => i === matchingIndex ? { ...p, matchedRecord: null, matchStatus: 'pending' } : p) })); setMatchSearchResults([]) }}
-                    style={{ fontSize: 11, color: 'var(--color-text-tertiary)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                    Change match
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                  <input type="text" value={matchSearchQuery}
+                    autoFocus={!person.correctedName}
+                    onChange={e => {
+                      setMatchSearchQuery(e.target.value)
+                      if (!person.correctedName) updateCorrectedName(matchingIndex, e.target.value)
+                    }}
+                    onKeyDown={e => e.key === 'Enter' && handleMatchSearch(matchSearchQuery)}
+                    placeholder={person.correctedName ? 'Search database…' : 'Name / search…'}
+                    style={{ flex: 1, background: '#fff', border: '2px solid var(--color-border-success)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: '#111', outline: 'none' }} />
+                  <button onClick={() => handleMatchSearch(matchSearchQuery)} disabled={matchSearching}
+                    style={{ padding: '8px 14px', fontSize: 13, fontWeight: 600, borderRadius: 6, cursor: 'pointer', background: 'var(--color-background-success)', color: 'var(--color-text-success)', border: 'none' }}>
+                    {matchSearching ? '…' : 'Search'}
                   </button>
                 </div>
-              ) : (
-                <div style={{ marginTop: 12 }}>
-                  <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                    <input type="text" value={matchSearchQuery}
-                      onChange={e => setMatchSearchQuery(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && handleMatchSearch(matchSearchQuery)}
-                      placeholder="Search database…"
-                      style={{ flex: 1, background: '#fff', border: '2px solid var(--color-border-success)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: '#111', outline: 'none' }} />
-                    <button onClick={() => handleMatchSearch(matchSearchQuery)} disabled={matchSearching}
-                      style={{ padding: '8px 14px', fontSize: 13, fontWeight: 600, borderRadius: 6, cursor: 'pointer', background: 'var(--color-background-success)', color: 'var(--color-text-success)', border: 'none' }}>
-                      {matchSearching ? '…' : 'Search'}
-                    </button>
+                {matchSearchResults.map(record => (
+                  <div key={record.deceased_id}
+                    onClick={() => {
+                      if (!person.correctedName) updateCorrectedName(matchingIndex, matchSearchQuery || record.full_name)
+                      selectMatch(record)
+                      advancePerson()
+                    }}
+                    style={{ padding: '10px 12px', borderRadius: 6, marginBottom: 6, cursor: 'pointer', background: record.is_occupant ? 'rgba(234,179,8,0.1)' : 'var(--color-background-primary)', border: `0.5px solid ${record.is_occupant ? 'var(--color-border-warning)' : 'var(--color-border-tertiary)'}` }}>
+                    <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 2px', color: record.is_occupant ? 'var(--color-text-warning)' : 'var(--color-text-primary)' }}>
+                      {record.full_name}
+                      {record.is_occupant && <span style={{ fontSize: 11, marginLeft: 6 }}>⬛ already buried</span>}
+                    </p>
+                    <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: 0 }}>
+                      {[record.date_of_death_verbatim && `d. ${record.date_of_death_verbatim}`, record.maiden_name && `nee ${record.maiden_name}`].filter(Boolean).join(' · ')}
+                    </p>
                   </div>
-                  {matchSearchResults.map(record => (
-                    <div key={record.deceased_id} onClick={() => selectMatch(record)}
-                      style={{ padding: '10px 12px', borderRadius: 6, marginBottom: 6, cursor: 'pointer', background: record.is_occupant ? 'rgba(234,179,8,0.1)' : 'var(--color-background-primary)', border: `0.5px solid ${record.is_occupant ? 'var(--color-border-warning)' : 'var(--color-border-tertiary)'}` }}>
-                      <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 2px', color: record.is_occupant ? 'var(--color-text-warning)' : 'var(--color-text-primary)' }}>
-                        {record.full_name}
-                        {record.is_occupant && <span style={{ fontSize: 11, marginLeft: 6 }}>⬛ already buried</span>}
-                      </p>
-                      <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: 0 }}>
-                        {[record.date_of_death_verbatim && `d. ${record.date_of_death_verbatim}`, record.maiden_name && `nee ${record.maiden_name}`].filter(Boolean).join(' · ')}
-                      </p>
-                    </div>
-                  ))}
-                  {!matchSearching && matchSearchAttempted && matchSearchResults.length === 0 && (
-                    <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', textAlign: 'center', padding: '8px 0' }}>No matches — try last name only</p>
-                  )}
-                </div>
-              )}
+                ))}
+                {!matchSearching && matchSearchAttempted && matchSearchResults.length === 0 && (
+                  <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', textAlign: 'center', padding: '8px 0' }}>No matches — try last name only</p>
+                )}
+              </div>
             </div>
           ) : null}
         </div>
@@ -659,15 +660,16 @@ export default function StoneQA({ onBack }) {
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--color-background-secondary)', padding: '12px 16px', borderTop: '0.5px solid var(--color-border-secondary)' }}>
           <div style={{ maxWidth: 640, margin: '0 auto', display: 'flex', gap: 8 }}>
             {allDone ? (
-              <button onClick={saveStoneQA} disabled={saving}
-                style={{ flex: 1, padding: 14, fontSize: 14, fontWeight: 600 }}>
-                Save Stone QA
-              </button>
-            ) : person?.matchStatus === 'matched' ? (
-              <button onClick={advancePerson}
-                style={{ flex: 1, padding: 14, fontSize: 14, fontWeight: 600 }}>
-                {matchingIndex + 1 < stoneMatrix.people.length ? 'Next Person →' : 'Review & Save →'}
-              </button>
+              <>
+                <button onClick={addBlankPerson}
+                  style={{ padding: '12px 16px', fontSize: 13, background: 'transparent', border: '0.5px solid var(--color-border-secondary)', color: 'var(--color-text-secondary)', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  + Add person
+                </button>
+                <button onClick={saveStoneQA} disabled={saving}
+                  style={{ flex: 1, padding: 14, fontSize: 14, fontWeight: 600 }}>
+                  Save Stone QA
+                </button>
+              </>
             ) : matchSearchAttempted && !matchSearching ? (
               <>
                 <button onClick={() => { skipMatch(); advancePerson() }}
