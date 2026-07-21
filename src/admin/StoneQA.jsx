@@ -85,7 +85,7 @@ export default function StoneQA({ onBack }) {
     stoneMatrix, setStoneMatrix, stoneMatrixRef,
     matchingIndex,
     matchSearchQuery, setMatchSearchQuery,
-    matchSearchResults, setMatchSearchResults,
+    matchSearchResults,
     matchSearching, matchSearchAttempted,
     initMatrix, resetMatrix, prepareMatch,
     updatePersonRole, updateCorrectedName, updateRelField,
