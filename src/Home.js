@@ -68,6 +68,9 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
 
   const [saving, setSaving] = useState(false)
 
+  // Plot location
+  const [plotNumber, setPlotNumber] = useState('')
+
   // Field notes
   const [volunteerNotes, setVolunteerNotes] = useState('')
   const [selectedFlags, setSelectedFlags] = useState([])
@@ -102,6 +105,7 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
     currentStoneRef.current = null
     resetMatrix()
     setPhotoPhase('capture')
+    setPlotNumber('')
     setVolunteerNotes('')
     setSelectedFlags([])
     setShowNotes(false)
@@ -267,7 +271,8 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
         field_status: selectedFlags.length > 0 ? 'needs_followup' : 'complete',
         flags: selectedFlags,
         location: 'SRID=4326;POINT(' + lng + ' ' + lat + ')',
-        gps_accuracy_m: accuracy
+        gps_accuracy_m: accuracy,
+        plot_number: plotNumber || null
       }).select().single()
       if (stoneError) throw stoneError
 
@@ -640,6 +645,19 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
         {photoPhase === 'capture' && (
           <>
             <button onClick={() => setMode('landing')} className="text-gray-300 text-sm hover:text-white mb-4">← Back</button>
+
+            {/* Plot number — entered first to confirm location */}
+            <div className="bg-gray-800 rounded-lg p-4 mb-4 border border-gray-600">
+              <label className="block text-green-400 font-bold text-sm mb-2">Plot Number</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={plotNumber}
+                onChange={e => setPlotNumber(e.target.value)}
+                placeholder="Enter plot number"
+                className="w-full bg-white border-2 border-green-500 rounded p-3 text-gray-900 text-xl font-bold outline-none focus:ring-2 focus:ring-green-400 placeholder-gray-400"
+              />
+            </div>
 
             {pendingPhotoFor && !image && (
               <div className="bg-gray-700 rounded-lg p-4 mb-4">
