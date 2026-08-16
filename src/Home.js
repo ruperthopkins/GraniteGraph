@@ -68,8 +68,12 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
 
   const [saving, setSaving] = useState(false)
 
-  // Plot location
+  // Plot location (capture)
   const [plotNumber, setPlotNumber] = useState('')
+
+  // Plot location (search/edit)
+  const [editPlotNumber, setEditPlotNumber] = useState('')
+  const [savingPlot, setSavingPlot] = useState(false)
 
   // Field notes
   const [volunteerNotes, setVolunteerNotes] = useState('')
@@ -451,17 +455,28 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
   }
 
   const selectSearchRecord = async (record) => {
-    setSearchSelected(record); setSearchStoneData(null)
+    setSearchSelected(record); setSearchStoneData(null); setEditPlotNumber('')
     if (record.is_occupant) {
       const { data, error } = await supabase.from('stone_deceased')
-        .select('stones ( stone_id, gps_accuracy_m, condition_notes, inscription_text, stone_photos ( photo_url, is_primary ) )')
+        .select('stones ( stone_id, gps_accuracy_m, condition_notes, inscription_text, plot_number, stone_photos ( photo_url, is_primary ) )')
         .eq('deceased_id', record.deceased_id).limit(1)
       if (!error && data?.[0]?.stones) {
         const { data: coords } = await supabase.rpc('get_stones_with_coordinates')
         const stoneCoord = coords?.find(c => c.stone_id === data[0].stones.stone_id)
-        setSearchStoneData({ ...data[0].stones, lat: stoneCoord?.lat, lng: stoneCoord?.lng })
+        const stoneData = { ...data[0].stones, lat: stoneCoord?.lat, lng: stoneCoord?.lng }
+        setSearchStoneData(stoneData)
+        setEditPlotNumber(stoneData.plot_number || '')
       }
     }
+  }
+
+  const savePlotNumber = async () => {
+    if (!searchStoneData?.stone_id) return
+    setSavingPlot(true)
+    await supabase.from('stones').update({ plot_number: editPlotNumber || null })
+      .eq('stone_id', searchStoneData.stone_id)
+    setSearchStoneData(prev => ({ ...prev, plot_number: editPlotNumber || null }))
+    setSavingPlot(false)
   }
 
   const getMyLocation = () => {
@@ -578,6 +593,25 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
                       <p className="text-white text-sm font-mono">{searchStoneData.inscription_text}</p>
                     </div>
                   )}
+                  <div className="mt-3 pt-3 border-t border-gray-600">
+                    <p className="text-gray-400 text-xs mb-1">Plot Number</p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={editPlotNumber}
+                        onChange={e => setEditPlotNumber(e.target.value)}
+                        placeholder="e.g. 10.1"
+                        className="flex-1 bg-white border-2 border-green-500 rounded p-2 text-gray-900 font-bold text-sm outline-none focus:ring-2 focus:ring-green-400 placeholder-gray-400"
+                      />
+                      <button
+                        onClick={savePlotNumber}
+                        disabled={savingPlot || editPlotNumber === (searchStoneData.plot_number || '')}
+                        className="bg-green-700 hover:bg-green-600 disabled:bg-gray-600 text-white font-bold px-4 rounded text-sm"
+                      >
+                        {savingPlot ? 'Saving...' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
               {searchStoneData?.lat && searchStoneData?.lng && (
@@ -651,7 +685,6 @@ export default function Home({ session, onMap, onRecent, onAdmin }) {
               <label className="block text-green-400 font-bold text-sm mb-2">Plot Number</label>
               <input
                 type="text"
-                inputMode="numeric"
                 value={plotNumber}
                 onChange={e => setPlotNumber(e.target.value)}
                 placeholder="Enter plot number"
